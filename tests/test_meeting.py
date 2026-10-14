@@ -96,3 +96,12 @@ def test_capturing_the_same_notes_twice_files_nothing_new():
     gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     seen_gid, group = svc.already_captured(DOC)
     assert seen_gid == gid and len(group) == len(proposals)
+
+
+def test_issue_cites_each_meeting_once_with_its_times():
+    from threadline.integrations import _sources_line
+
+    svc = Threadline(MemoryStore(first_req=7), generate, FakePRD())
+    _, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    line = _sources_line(proposals[0].requirement, markdown=True)
+    assert line == f"Source: [Checkout v2 kickoff](https://docs.google.com/document/d/{DOC}/edit) (00:06:45)"

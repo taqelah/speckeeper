@@ -16,8 +16,23 @@ def _gherkin_block(req: Requirement) -> str:
     return "\n".join(out)
 
 
-def _sources_line(req: Requirement) -> str:
-    return "Source: " + ", ".join(s.label or s.permalink or f"<@{s.user}> {s.ts}" for s in req.sources)
+def _sources_line(req: Requirement, markdown: bool = False) -> str:
+    """One citation per meeting (with its times) or Slack message, never the same one twice."""
+    meetings: dict[str, tuple[str, list[str]]] = {}
+    others: list[str] = []
+    for s in req.sources:
+        if s.kind == "meeting":
+            title, _, time = s.label.partition(", ")
+            link, times = meetings.setdefault(title, (s.permalink, []))
+            if time and time not in times:
+                times.append(time)
+        elif (o := s.permalink or f"<@{s.user}> {s.ts}") not in others:
+            others.append(o)
+    parts = []
+    for title, (link, times) in meetings.items():
+        name = f"[{title}]({link})" if markdown and link else title
+        parts.append(name + (f" ({', '.join(sorted(times))})" if times else ""))
+    return "Source: " + ", ".join(parts + others)
 
 
 class GoogleDocsPRD:
@@ -62,7 +77,16 @@ class GitHubIssues:
         )
 
     def create(self, req: Requirement) -> int:
-        body = "\n".join(
+        res = self.http.post(f"/repos/{self.repo}/issues", json={"title": f"{req.key} {req.title}", "body": self._body(req), "labels": ["requirement", "ac-keyed"]})
+        res.raise_for_status()
+        return res.json()["number"]
+
+    def update(self, number: int, req: Requirement) -> None:
+        self.http.patch(f"/repos/{self.repo}/issues/{number}", json={"title": f"{req.key} {req.title}", "body": self._body(req)}).raise_for_status()
+
+    @staticmethod
+    def _body(req: Requirement) -> str:
+        return "\n".join(
             [
                 "## Acceptance criteria",
                 "```gherkin",
@@ -71,14 +95,11 @@ class GitHubIssues:
                 "## Verification",
                 *[f"- [ ] `{ac.key}@v{ac.version}` · a test whose name starts with this key" for ac in req.acs],
                 "",
-                f"From {req.key} in the PRD. {_sources_line(req)}",
+                f"From {req.key} in the PRD. {_sources_line(req, markdown=True)}",
                 "",
                 "_Opened by Threadline after approval in Slack._",
             ]
         )
-        res = self.http.post(f"/repos/{self.repo}/issues", json={"title": f"{req.key} {req.title}", "body": body, "labels": ["requirement", "ac-keyed"]})
-        res.raise_for_status()
-        return res.json()["number"]
 
     def comment(self, number: int, body: str) -> None:
         self.http.post(f"/repos/{self.repo}/issues/{number}/comments", json={"body": body}).raise_for_status()
