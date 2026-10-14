@@ -43,7 +43,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
     from .agent import Asker, use_vertex
 
     use_vertex(s.gcp_project, s.gemini_location)
-    return Threadline(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model), prd, issues, Asker(store, s.pro_model))
+    return Threadline(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues, Asker(store, s.flash_model, fallback=s.pro_model))
 
 
 def lazy_drive_fetch():

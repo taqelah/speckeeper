@@ -87,7 +87,7 @@ def extract(messages: list[Source], generate: Generate, approved: list[Requireme
     return reqs, raw.open_questions
 
 
-def gemini_generate(project: str, location: str, model: str) -> Generate:
+def gemini_generate(project: str, location: str, model: str, fallback: str = "") -> Generate:
     """Gemini on Vertex AI with a response schema, so the reply is JSON of that shape."""
     from google import genai
     from google.genai import types
@@ -97,11 +97,15 @@ def gemini_generate(project: str, location: str, model: str) -> Generate:
     def generate(prompt: str, schema: type[BaseModel]) -> dict:
         if not clients:
             clients.append(genai.Client(vertexai=True, project=project, location=location))
-        res = clients[0].models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1),
-        )
+        config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
+        try:
+            res = clients[0].models.generate_content(model=model, contents=prompt, config=config)
+        except Exception as e:
+            # Preview models have small quotas: on a rate limit, ask the fallback model once.
+            if not fallback or not (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)):
+                raise
+            logging.getLogger("threadline").warning("%s rate limited; using %s", model, fallback)
+            res = clients[0].models.generate_content(model=fallback, contents=prompt, config=config)
         u = res.usage_metadata
         if u:  # tokens are what Gemini bills for; logged per call for the cost slide and the evals
             logging.getLogger("threadline.usage").info(

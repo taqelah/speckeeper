@@ -112,18 +112,34 @@ def use_vertex(project: str, location: str) -> None:
     os.environ.setdefault("GOOGLE_CLOUD_LOCATION", location)
 
 
+def rate_limited(e: Exception) -> bool:
+    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)
+
+
 class Asker:
     """Runs the agent for one question at a time. Each question gets a fresh session: answers come
-    from the store, not from earlier chat, so two people asking get the same facts."""
+    from the store, not from earlier chat, so two people asking get the same facts.
 
-    def __init__(self, store: Store, model: str) -> None:
-        self.runner = InMemoryRunner(agent=build_agent(store, model), app_name="threadline")
+    Questions run on Flash (lookup and summary need no more); if a model is rate limited (429, common
+    with preview models' small quotas) the question is asked once more on the fallback model."""
 
-    async def ask(self, question: str, user: str = "slack") -> str:
-        session = await self.runner.session_service.create_session(app_name="threadline", user_id=user, session_id=uuid.uuid4().hex)
+    def __init__(self, store: Store, model: str, fallback: str = "") -> None:
+        self.runners = [InMemoryRunner(agent=build_agent(store, m), app_name="threadline") for m in dict.fromkeys([model, fallback or model])]
+
+    async def _run(self, runner: InMemoryRunner, question: str, user: str) -> str:
+        session = await runner.session_service.create_session(app_name="threadline", user_id=user, session_id=uuid.uuid4().hex)
         message = types.Content(role="user", parts=[types.Part(text=question)])
         answer = ""
-        async for event in self.runner.run_async(user_id=user, session_id=session.id, new_message=message):
+        async for event in runner.run_async(user_id=user, session_id=session.id, new_message=message):
             if event.is_final_response() and event.content and event.content.parts:
                 answer = "".join(p.text or "" for p in event.content.parts)
-        return answer or "I couldn't find an answer in the requirements."
+        return answer
+
+    async def ask(self, question: str, user: str = "slack") -> str:
+        for i, runner in enumerate(self.runners):
+            try:
+                return await self._run(runner, question, user) or "I couldn't find an answer in the requirements."
+            except Exception as e:
+                if not rate_limited(e) or i == len(self.runners) - 1:
+                    raise
+        return ""
