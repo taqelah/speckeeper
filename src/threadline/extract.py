@@ -69,10 +69,12 @@ def gemini_generate(project: str, location: str, model: str) -> Generate:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(vertexai=True, project=project, location=location)
+    clients: list = []  # made on first use, so the service starts (and Slack connects) before GCP is set up
 
     def generate(prompt: str, schema: type[BaseModel]) -> dict:
-        res = client.models.generate_content(
+        if not clients:
+            clients.append(genai.Client(vertexai=True, project=project, location=location))
+        res = clients[0].models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1),
