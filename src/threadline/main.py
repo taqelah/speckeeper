@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import xml.etree.ElementTree as ET
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -64,10 +65,10 @@ def lazy_drive_fetch():
     return fetch
 
 
-def create_app(s: Settings | None = None, svc: Threadline | None = None) -> FastAPI:
+def create_app(s: Settings | None = None, svc: Threadline | None = None, slack_client=None, fetch_doc=None, wait: bool = False) -> FastAPI:
     s = s or Settings.from_env()
     svc = svc or build_service(s)
-    slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, lazy_drive_fetch())
+    slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait)
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Threadline", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
@@ -83,7 +84,10 @@ def create_app(s: Settings | None = None, svc: Threadline | None = None) -> Fast
     async def ci_webhook(run: CiRun, x_threadline_secret: str = Header(default="")):
         if not s.ci_secret or not hmac.compare_digest(x_threadline_secret, s.ci_secret):
             raise HTTPException(status_code=401, detail="bad secret")
-        changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
+        try:
+            changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
+        except ET.ParseError:
+            raise HTTPException(status_code=400, detail="junit_xml is not valid XML")
         for _req, text in changed:
             await slack.client.chat_postMessage(channel=run.channel, text=text)
         return {"requirements": [r.key for r, _ in changed], "unmapped": unmapped}

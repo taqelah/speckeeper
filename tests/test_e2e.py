@@ -1,0 +1,461 @@
+"""End to end through the HTTP app, the way Slack and GitHub Actions call it: signed Slack events and
+button clicks, and CI webhooks. A recording Slack client stands in for Slack, fakes stand in for
+Gemini, the notes doc, GitHub and the PRD, so nothing touches the network. Test ids match the test
+plan in the build plan doc (E2E-, N-, C-)."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import time
+import threading
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pytest
+from fastapi.testclient import TestClient
+from slack_sdk.web.async_client import AsyncWebClient
+
+from threadline.config import Settings
+from threadline.main import create_app
+from threadline.service import Threadline
+from threadline.store import MemoryStore
+from test_meeting import DOC, NOTES, FakeIssues, FakePRD
+
+SECRET = "signing-secret"
+CI = "ci-secret"
+LINK = f"<https://docs.google.com/document/d/{DOC}/edit?usp=sharing|kickoff notes>"
+
+
+class FakeSlack:
+    """A local HTTP server that answers Slack's Web API like Slack would and records every call.
+    Threadline talks to it over real HTTP, exactly as it talks to slack.com."""
+
+    def __init__(self, thread=None):
+        self.calls: list[tuple[str, dict]] = []
+        self.thread = thread or []
+        self._ts = 1000
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _answer(self):
+                url = urllib.parse.urlparse(self.path)
+                method = url.path.rsplit("/", 1)[-1]
+                args = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
+                if raw:
+                    if "json" in (self.headers.get("Content-Type") or ""):
+                        args.update(json.loads(raw))
+                    else:
+                        args.update({k: v[0] for k, v in urllib.parse.parse_qs(raw).items()})
+                for k in ("blocks",):
+                    if isinstance(args.get(k), str):
+                        args[k] = json.loads(args[k])
+                body = fake.respond(method, args)
+                out = json.dumps(body).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            do_GET = do_POST = _answer
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}/api/"
+
+    def respond(self, method: str, args: dict) -> dict:
+        self.calls.append((method, args))
+        self._ts += 1
+        body = {"ok": True}
+        if method == "auth.test":
+            body.update(user_id="UBOT", bot_id="BBOT", team_id="T1", user="threadline")
+        elif method == "chat.postMessage":
+            body.update(ts=f"{self._ts}.0", channel=args.get("channel"))
+        elif method == "conversations.replies":
+            body.update(messages=self.thread)
+        elif method == "users.info":
+            name = {"UMAYA": "Maya Lim", "UWEI": "Wei Tan"}.get(args.get("user"), "Someone")
+            body.update(user={"id": args.get("user"), "real_name": name, "profile": {}})
+        elif method == "chat.getPermalink":
+            body.update(permalink=f"https://slack.test/p{args.get('message_ts')}")
+        return body
+
+    def posted(self, method: str) -> list[dict]:
+        return [args for m, args in self.calls if m == method]
+
+    def client(self) -> AsyncWebClient:
+        return AsyncWebClient(token="xoxb-test", base_url=self.base_url)
+
+
+def settings() -> Settings:
+    return Settings(
+        slack_bot_token="xoxb-test", slack_signing_secret=SECRET, gcp_project="p", gcp_location="l", gemini_location="global",
+        pro_model="m", flash_model="m", prd_doc_id="", github_token="", github_repo="", ci_secret=CI, store="memory",
+    )
+
+
+KICKOFF = {
+    "requirements": [
+        {"title": "Receipt uploads are limited to 25 MB", "acceptance_criteria": [{"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"}], "source_ts": ["__limit__"]},
+        {"title": "Every upload is virus-scanned before it is stored", "acceptance_criteria": [{"given": "an infected file", "when": "uploaded", "then": "it is rejected"}], "source_ts": ["__scan__"]},
+    ],
+    "open_questions": ["Should photos be compressed on the phone?"],
+}
+CHANGE = {
+    "requirements": [
+        {"title": "Receipt uploads are limited to 10 MB", "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "show 'File exceeds 10 MB'"}], "source_ts": ["200.1"], "changes": "REQ-7"}
+    ],
+    "open_questions": [],
+}
+
+
+class Gemini:
+    """Answers capture prompts from a queue of replies, filling in the real passage ids."""
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.prompts: list[str] = []
+
+    def __call__(self, prompt, schema):
+        self.prompts.append(prompt)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        ids = {line.split(" | ")[2]: line.split(" | ")[0] for line in prompt.splitlines() if " | notes | " in line}
+        limit = [ts for text, ts in ids.items() if "upload size limit" in text]
+        scan = [ts for text, ts in ids.items() if text.startswith("Virus scan")]
+        out = json.loads(json.dumps(reply))
+        for r in out["requirements"]:
+            r["source_ts"] = sum(([*limit] if t == "__limit__" else [*scan] if t == "__scan__" else [t] for t in r["source_ts"]), [])
+        return out
+
+
+class Asker:
+    def __init__(self, reply="REQ-7 is limited to 25 MB, decided at the kickoff (00:06:45)."):
+        self.reply, self.questions = reply, []
+
+    async def ask(self, question, user="slack"):
+        self.questions.append(question)
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+
+def fetch_ok(doc_id):
+    assert doc_id == DOC
+    return "Checkout v2 kickoff", NOTES
+
+
+def fetch_denied(doc_id):
+    raise PermissionError("not shared")
+
+
+class App:
+    def __init__(self, gemini=None, asker=None, fetch=fetch_ok, thread=None):
+        self.prd, self.issues = FakePRD(), FakeIssues()
+        self.issues_created = self.issues.created
+        self.svc = Threadline(MemoryStore(first_req=7), gemini or Gemini(KICKOFF), self.prd, self.issues, asker)
+        self.slack = FakeSlack(thread)
+        self.http = TestClient(create_app(settings(), self.svc, slack_client=self.slack.client(), fetch_doc=fetch, wait=True))
+        self._event = 0
+
+    def signed(self, body: str, content_type: str, at: int | None = None, secret: str = SECRET):
+        ts = at or int(time.time())
+        sig = "v0=" + hmac.new(secret.encode(), f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
+        return self.http.post("/slack/events", content=body, headers={"Content-Type": content_type, "X-Slack-Request-Timestamp": str(ts), "X-Slack-Signature": sig})
+
+    def mention(self, text: str, ts="100.1", thread_ts=None, **kw):
+        self._event += 1
+        event = {"type": "app_mention", "user": "UMAYA", "text": f"<@UBOT> {text}", "ts": ts, "channel": "C1", "event_ts": ts}
+        if thread_ts:
+            event["thread_ts"] = thread_ts
+        body = json.dumps({"type": "event_callback", "team_id": "T1", "api_app_id": "A1", "event": event, "event_id": f"Ev{self._event}", "event_time": 1})
+        return self.signed(body, "application/json", **kw)
+
+    def message(self, event: dict):
+        self._event += 1
+        body = json.dumps({"type": "event_callback", "team_id": "T1", "api_app_id": "A1", "event": event, "event_id": f"Ev{self._event}", "event_time": 1})
+        return self.signed(body, "application/json")
+
+    def click(self, action_id: str, value: str, message: dict):
+        payload = {
+            "type": "block_actions", "user": {"id": "UMAYA", "name": "maya"}, "team": {"id": "T1"}, "api_app_id": "A1",
+            "channel": {"id": "C1"}, "message": message, "container": {"type": "message", "message_ts": message["ts"]},
+            "trigger_id": "t", "token": "x", "actions": [{"action_id": action_id, "value": value, "type": "button", "block_id": "b"}],
+        }
+        return self.signed("payload=" + urllib.parse.quote(json.dumps(payload)), "application/x-www-form-urlencoded")
+
+    def last_card(self) -> dict:
+        update = self.slack.posted("chat.update")[-1]
+        return {"ts": update["ts"], "blocks": update.get("blocks", [])}
+
+    def button(self, card: dict, action_id: str) -> str:
+        for b in card["blocks"]:
+            for e in b.get("elements", []):
+                if e.get("action_id") == action_id:
+                    return e["value"]
+        raise AssertionError(f"no {action_id} button on the card")
+
+    def ci(self, xml: str, secret: str | None = CI):
+        headers = {"X-Threadline-Secret": secret} if secret is not None else {}
+        return self.http.post("/ci", json={"run_id": "#1", "channel": "C1", "junit_xml": xml}, headers=headers)
+
+
+def junit(*cases: tuple[str, bool]) -> str:
+    rows = "".join(f'<testcase name="{n}"/>' if ok else f'<testcase name="{n}"><failure message="x"/></testcase>' for n, ok in cases)
+    return f"<testsuites><testsuite>{rows}</testsuite></testsuites>"
+
+
+def kickoff_approved(app: App) -> None:
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    app.click("approve_group", app.button(card, "approve_group"), card)
+
+
+# --- the happy path -----------------------------------------------------------------------------
+
+
+def test_E2E_01_unknown_mention_gets_help_in_the_thread():
+    app = App()
+    assert app.mention("hello").status_code == 200
+    (reply,) = app.slack.posted("chat.postMessage")
+    assert "capture this" in reply["text"] and reply["thread_ts"] == "100.1"
+
+
+def test_E2E_02_meeting_notes_become_one_baseline_card():
+    app = App()
+    app.mention(f"capture {LINK}")
+    assert "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
+    card = json.dumps(app.last_card()["blocks"])
+    assert "captured 2 agreed requirements" in card and "00:06:45" in card
+    assert "Should photos be compressed" in card  # open question shown, not captured
+    assert "Approve all as v1.0.0" in card
+
+
+def test_E2E_03_approve_all_writes_the_baseline_everywhere():
+    app = App()
+    kickoff_approved(app)
+    assert "PRD v1.0.0" in app.slack.posted("chat.update")[-1]["text"]
+    assert [r.key for r in app.svc.store.requirements()] == ["REQ-7", "REQ-8"]
+    assert app.issues_created == ["REQ-7", "REQ-8"] and app.prd.appended == ["REQ-7", "REQ-8"]
+    assert app.prd.notes[-1].startswith("v1.0.0")
+
+
+def test_E2E_04_double_click_on_approve_all_files_nothing_twice():
+    app = App()
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    gid = app.button(card, "approve_group")
+    app.click("approve_group", gid, card)
+    app.click("approve_group", gid, card)
+    assert app.issues_created == ["REQ-7", "REQ-8"]
+
+
+def test_E2E_05_review_one_by_one_posts_a_card_per_requirement():
+    app = App()
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    before = len(app.slack.posted("chat.postMessage"))
+    app.click("review_group", app.button(card, "review_group"), card)
+    cards = app.slack.posted("chat.postMessage")[before:]
+    assert len(cards) == 2 and all("approve_proposal" in json.dumps(c["blocks"]) for c in cards)
+
+
+def test_E2E_06_capturing_the_same_notes_again_files_nothing_new():
+    app = App(Gemini(KICKOFF, KICKOFF))
+    kickoff_approved(app)
+    app.mention(f"capture {LINK}", ts="101.1")
+    assert "already captured: 2 approved (REQ-7, REQ-8)" in app.slack.posted("chat.update")[-1]["text"]
+    assert len(app.svc.store.requirements()) == 2
+
+
+def test_E2E_07_a_thread_that_changes_REQ_7_becomes_v2_not_a_new_requirement():
+    thread = [{"ts": "200.1", "user": "UWEI", "text": "Storage bill doubled. Let's cap uploads at 10 MB."}, {"ts": "200.2", "user": "UMAYA", "text": "Agreed."}]
+    app = App(Gemini(KICKOFF, CHANGE), thread=thread)
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    card = app.last_card()
+    text = json.dumps(card["blocks"])
+    assert "Change to REQ-7" in text and "- AC-7-1" in text and "+ AC-7-1" in text
+    assert "<@UWEI>" in text and "https://slack.test/p200.1" in text  # cited as a mention (Slack shows the name) with a link
+    app.click("approve_proposal", app.button(card, "approve_proposal"), card)
+    req7 = app.svc.store.get_requirement("REQ-7")
+    assert req7.version == 2 and "10 MB" in req7.title
+    assert app.svc.store.get_requirement("REQ-9") is None
+    assert "REQ-7 is now v2" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.issues.updated[-1][:2] == (1, 2)
+
+
+def test_E2E_08_green_ci_verifies_a_requirement_in_slack_and_on_its_issue():
+    app = App()
+    kickoff_approved(app)
+    res = app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True), ("renders the page", True)))
+    assert res.json() == {"requirements": ["REQ-7"], "unmapped": ["renders the page"]}
+    assert "REQ-7 is verified" in app.slack.posted("chat.postMessage")[-1]["text"]
+    assert app.issues.comments[-1][0] == 1
+
+
+def test_E2E_09_after_a_change_the_old_passing_test_is_stale_not_verified():
+    thread = [{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}]
+    app = App(Gemini(KICKOFF, CHANGE), thread=thread)
+    kickoff_approved(app)
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    card = app.last_card()
+    assert "Stale test" in json.dumps(card["blocks"])
+    app.click("approve_proposal", app.button(card, "approve_proposal"), card)
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
+    last = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert "stale" in last and "not verified" in last
+
+
+def test_E2E_10_questions_go_to_the_agent_and_the_answer_is_posted():
+    asker = Asker()
+    app = App(asker=asker)
+    app.mention("why is the upload limit 25 MB?")
+    assert asker.questions == ["why is the upload limit 25 MB?"]
+    assert "decided at the kickoff" in app.slack.posted("chat.update")[-1]["text"]
+
+
+# --- negative cases -----------------------------------------------------------------------------
+
+
+def test_N_01_a_request_with_a_bad_signature_is_rejected_and_nothing_is_posted():
+    app = App()
+    assert app.mention("capture this", secret="wrong").status_code == 401
+    assert app.slack.posted("chat.postMessage") == []
+
+
+def test_N_02_a_replayed_request_older_than_five_minutes_is_rejected():
+    app = App()
+    assert app.mention("hello", at=int(time.time()) - 600).status_code == 401
+    assert app.slack.posted("chat.postMessage") == []
+
+
+def test_N_03_ci_without_or_with_a_wrong_secret_is_rejected():
+    app = App()
+    assert app.ci(junit(("AC-7-1@v1 x", True)), secret="nope").status_code == 401
+    assert app.ci(junit(("AC-7-1@v1 x", True)), secret=None).status_code == 401
+    assert app.slack.posted("chat.postMessage") == []
+
+
+def test_N_04_ci_with_broken_xml_is_a_400_not_a_crash():
+    app = App()
+    assert app.ci("<testsuites><testcase").status_code == 400
+
+
+def test_N_05_notes_that_cannot_be_opened_get_a_clear_message():
+    app = App(fetch=fetch_denied)
+    app.mention(f"capture {LINK}")
+    assert "couldn't open those notes" in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_N_06_a_gemini_failure_during_capture_gets_a_clear_message():
+    app = App(Gemini(RuntimeError("503 from Gemini")), thread=[{"ts": "1.1", "user": "UMAYA", "text": "x"}])
+    app.mention("capture this", ts="1.2", thread_ts="1.1")
+    assert "couldn't read this thread" in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_N_07_uncited_requirements_are_dropped_and_said_so():
+    invented = {"requirements": [{"title": "Invented", "acceptance_criteria": [{"given": "a", "when": "b", "then": "c"}], "source_ts": ["9.9"]}], "open_questions": []}
+    app = App(Gemini(invented), thread=[{"ts": "1.1", "user": "UMAYA", "text": "Nice weather."}])
+    app.mention("capture this", ts="1.2", thread_ts="1.1")
+    assert "didn't find an agreed requirement" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.svc.store.requirements() == []
+
+
+def test_N_08_a_click_on_a_card_from_before_a_restart_says_so():
+    app = App()
+    card = {"ts": "5.5", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "From *Old notes* I captured 2"}}]}
+    app.click("approve_group", "g-unknown", card)
+    assert "before Threadline restarted" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.issues_created == []
+
+
+def test_N_09_a_rate_limited_question_gets_a_clear_message():
+    app = App(asker=Asker(RuntimeError("429 RESOURCE_EXHAUSTED")))
+    app.mention("is REQ-7 verified?")
+    assert "couldn't look that up" in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_N_10_messages_from_bots_are_ignored():
+    app = App()
+    app.message({"type": "message", "subtype": "bot_message", "bot_id": "BOTHER", "text": "Cap uploads at 10 MB", "ts": "9.1", "channel": "C1"})
+    assert app.slack.posted("chat.postMessage") == [] and app.slack.posted("chat.update") == []
+
+
+def test_N_11_dismiss_writes_nothing():
+    app = App()
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    app.click("dismiss_group", app.button(card, "dismiss_group"), card)
+    assert "Nothing was written" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.issues_created == [] and app.prd.appended == [] and app.svc.prd_version == ""
+
+
+# --- corner cases -------------------------------------------------------------------------------
+
+
+def test_C_01_a_mention_inside_a_thread_reads_and_replies_in_that_thread():
+    thread = [{"ts": "300.1", "user": "UMAYA", "text": "Uploads up to 25 MB."}]
+    app = App(Gemini({"requirements": [], "open_questions": []}), thread=thread)
+    app.mention("capture this", ts="300.5", thread_ts="300.1")
+    assert app.slack.posted("conversations.replies")[0]["ts"] == "300.1"
+    assert app.slack.posted("chat.postMessage")[0]["thread_ts"] == "300.1"
+
+
+def test_C_02_the_capture_mention_itself_is_not_read_as_part_of_the_thread():
+    thread = [{"ts": "300.1", "user": "UMAYA", "text": "Uploads up to 25 MB."}, {"ts": "300.5", "user": "UMAYA", "text": "<@UBOT> capture this"}]
+    gemini = Gemini({"requirements": [], "open_questions": []})
+    app = App(gemini, thread=thread)
+    app.mention("capture this", ts="300.5", thread_ts="300.1")
+    assert "capture this" not in gemini.prompts[0]
+
+
+@pytest.mark.parametrize("link", [
+    f"<https://docs.google.com/document/d/{DOC}/edit>",
+    f"<https://docs.google.com/document/d/{DOC}/edit?usp=sharing|notes>",
+    f"<https://docs.google.com/document/d/{DOC}/view?tab=t.0>",
+])
+def test_C_03_meeting_note_links_in_any_common_form_are_recognised(link):
+    app = App()
+    app.mention(f"capture {link}")
+    assert "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
+
+
+def test_C_04_a_change_naming_a_requirement_that_does_not_exist_is_treated_as_new():
+    wrong = {"requirements": [{**CHANGE["requirements"][0], "changes": "REQ-99"}], "open_questions": []}
+    app = App(Gemini(KICKOFF, wrong), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    assert "approve_proposal" in json.dumps(app.last_card()["blocks"]) and "Change to" not in json.dumps(app.last_card()["blocks"])
+
+
+def test_C_05_a_failing_test_marks_its_criterion_failing_and_the_requirement_unverified():
+    app = App()
+    kickoff_approved(app)
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", False)))
+    last = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert "AC-7-1 failing" in last and "not verified" in last
+
+
+def test_C_06_a_ci_run_that_maps_to_no_requirement_posts_nothing():
+    app = App()
+    kickoff_approved(app)
+    before = len(app.slack.posted("chat.postMessage"))
+    res = app.ci(junit(("AC-99-1@v1 unknown", True), ("smoke", True)))
+    assert res.json()["requirements"] == [] and len(app.slack.posted("chat.postMessage")) == before
+
+
+def test_C_07_unicode_and_emoji_in_messages_survive_capture():
+    thread = [{"ts": "400.1", "user": "UMAYA", "text": "Reçus jusqu'à 25 Mo 🚀 — d'accord?"}]
+    gemini = Gemini({"requirements": [], "open_questions": []})
+    app = App(gemini, thread=thread)
+    app.mention("capture this", ts="400.2", thread_ts="400.1")
+    assert "Reçus jusqu'à 25 Mo 🚀" in gemini.prompts[0]

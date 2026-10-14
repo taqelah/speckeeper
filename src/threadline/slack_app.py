@@ -29,8 +29,12 @@ HELP = (
 )
 
 
-def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc: FetchDoc | None = None) -> AsyncApp:
-    app = AsyncApp(token=token, signing_secret=signing_secret)
+def build_slack_app(
+    token: str, signing_secret: str, svc: Threadline, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False
+) -> AsyncApp:
+    """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
+    before the HTTP response so the test can check what was posted."""
+    app = AsyncApp(token=token, signing_secret=signing_secret, client=client, process_before_response=wait)
 
     @app.event("app_mention")
     async def on_mention(event, client, say):
