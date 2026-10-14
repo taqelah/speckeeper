@@ -1,0 +1,39 @@
+Checkout v2 kickoff
+Wed, Oct 14, 2026 · 10:00 to 10:42 (Singapore time) · Google Meet
+Attendees: Maya Lim (product manager), Arjun Rao (frontend), Wei Tan (backend), Priya Nair (product manager, Payments)
+Meeting records: transcript and recording attached to the calendar event
+
+Summary
+The team agreed the scope of Checkout v2 for the six-week launch: receipt uploads with a 25 MB limit and a clear error above it, resumable uploads on mobile, a virus scan on every upload, an audit log of receipt downloads, and one-step payment with a saved card. Guest checkout moves to v2.1 because Payments cannot support guest tokens by launch. Image compression and the audit log retention period are still open.
+
+Details
+* Launch scope and date: Maya opened with the goal of cutting mobile checkout drop-off and confirmed a launch in six weeks, with a feature freeze two weeks before. Everyone agreed to keep v2 small and move anything uncertain to v2.1. (00:01:10)
+* Receipt upload size limit: Arjun asked what size of receipt file to accept. Wei said storage can handle 25 MB per file. Maya decided on a 25 MB limit; anything larger shows the error "File exceeds 25 MB" before the upload starts. Arjun will also show the limit in the file picker. (00:06:45)
+* Large files on mobile: Wei raised that uploads near 25 MB often fail on mobile networks. The team agreed uploads must resume where they stopped after a dropped connection, for up to 24 hours, without the user choosing the file again. (00:11:20)
+* Virus scan: Priya said Payments requires every uploaded file to be scanned before it is stored. The team agreed: an infected file is rejected with "This file can't be uploaded" and is never saved. (00:15:05)
+* Audit log for downloads: Priya asked for a record of who downloads a receipt. Agreed: every download is logged with the user, the time and the file. Priya proposed keeping the log for one year; Maya wants Compliance to confirm the period before it is final. (00:19:30)
+* Saved cards: Maya confirmed that a user with a saved card pays in one step: tapping Pay places the order with no extra screen. (00:24:10)
+* Guest checkout: Arjun asked whether guest checkout is in scope. Priya said Payments cannot issue guest tokens by launch. The team agreed to move guest checkout to v2.1. (00:27:40)
+* Image compression: Wei suggested compressing photos on the phone before upload to save storage. No decision; Arjun worried about receipt text becoming unreadable. (00:33:15)
+* Requirements and tickets: Maya will keep the PRD and the GitHub issues current from the #proj-checkout channel, with Threadline capturing decisions from threads for her approval. (00:38:50)
+
+Decisions
+* Receipt uploads are limited to 25 MB; larger files show "File exceeds 25 MB".
+* Interrupted uploads resume for up to 24 hours without choosing the file again.
+* Every upload is virus-scanned before it is stored; infected files are rejected and not saved.
+* Every receipt download is logged with user, time and file.
+* A saved card pays in one step.
+* Guest checkout moves to v2.1.
+
+Open questions
+* Should photos be compressed on the phone, and does the 25 MB limit apply before or after compression?
+* How long must the download audit log be kept? Priya proposed one year; Compliance to confirm.
+
+Next steps
+* Maya Lim: capture the agreed requirements in #proj-checkout and approve them into the PRD by Oct 15.
+* Arjun Rao: build the upload screen with the 25 MB check and the limit shown in the file picker.
+* Wei Tan: resumable uploads and the virus scan step in the upload service.
+* Priya Nair: ask Compliance for the audit log retention period by Oct 16.
+* Wei Tan and Arjun Rao: test receipt readability with compressed photos and bring a recommendation to the next sync.
+
+Sample meeting notes for the Threadline demo. Acme Shop and everyone named here are fictional.
