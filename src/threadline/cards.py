@@ -20,7 +20,8 @@ def _gherkin(req: Requirement) -> str:
 def _source(s) -> str:
     if s.kind == "meeting":
         return f"<{s.permalink}|{s.label}>" if s.permalink else s.label
-    return f"<@{s.user}> {s.permalink and f'<{s.permalink}|msg>' or s.ts}"
+    when = s.label.split(", ", 1)[-1] if s.label else s.ts
+    return f"<@{s.user}> " + (f"<{s.permalink}|{when}>" if s.permalink else when)
 
 
 def _sources(req: Requirement) -> str:
@@ -90,4 +91,53 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
 def decided_group_card(group_id: str, title: str, proposals: list[Proposal], note: str) -> list[dict]:
     blocks = [b for b in baseline_card(group_id, title, proposals, []) if b["type"] != "actions"]
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
+    return blocks
+
+
+def _steps(gherkin: str) -> str:
+    return " ".join(line.strip() for line in gherkin.splitlines())
+
+
+def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> list[dict]:
+    """A message that changes an approved requirement: what it was, what it would become, the tests
+    that would go stale. Approving makes a new version of the same requirement, never a second one."""
+    new = p.requirement
+    if old is None:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": f"This changes {p.target}, which no longer exists."}}]
+    origin = next((s.label.split(", ")[0] for s in old.sources if s.kind == "meeting"), "")
+    head = f":warning: *Change to {old.key}* (v{old.version}" + (f", from {origin}" if origin else "") + f"): {old.title} → *{new.title}*"
+    diff = []
+    for i in range(max(len(old.acs), len(new.acs))):
+        key = f"AC-{old.key.split('-')[1]}-{i + 1}"
+        before = _steps(old.acs[i].gherkin) if i < len(old.acs) else ""
+        after = _steps(new.acs[i].gherkin) if i < len(new.acs) else ""
+        if before == after:
+            continue
+        if before:
+            diff.append(f"- {key}  {before}")
+        if after:
+            diff.append(f"+ {key}  {after}")
+    stale = [a for a in old.acs if a.last_test and any(d.startswith(f"- {a.key} ") for d in diff)]
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": head}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "```" + ("\n".join(diff) or "(criteria unchanged)") + "```"}},
+    ]
+    if stale:
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(f":warning: Stale test: `{a.last_test}` proves the old text and still passes" for a in stale)}}
+        )
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Was: " + _sources(old).removeprefix("Source: ") + "   ·   Now: " + _sources(new).removeprefix("Source: ")}]})
+    if decided:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": decided}]})
+    else:
+        blocks.append(
+            {
+                "type": "actions",
+                "block_id": f"proposal:{p.id}",
+                "elements": [
+                    {"type": "button", "style": "primary", "action_id": APPROVE, "value": p.id, "text": {"type": "plain_text", "text": "Approve change"}},
+                    {"type": "button", "action_id": DISMISS, "value": p.id, "text": {"type": "plain_text", "text": "Dismiss"}},
+                ],
+            }
+        )
     return blocks

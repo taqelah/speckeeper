@@ -7,16 +7,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from slack_bolt.async_app import AsyncApp
 
-from .cards import APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, REVIEW_EACH, approval_card, baseline_card, decided_card, decided_group_card
+from .cards import APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, REVIEW_EACH, approval_card, baseline_card, change_card, decided_card, decided_group_card
 from .models import Source
 from .notes import FetchDoc, doc_id_in
 from .service import Threadline
 
 log = logging.getLogger("threadline")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
+
+TZ = "Asia/Singapore"  # how message times are written in citations
 
 HELP = (
     "Mention me in a thread: `@Threadline capture this` to turn what was agreed into a requirement for approval, "
@@ -45,11 +49,24 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
     async def capture(client, channel: str, thread_ts: str, mention_ts: str) -> None:
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the thread…_")
         replies = await client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-        messages = [
-            Source(ts=m["ts"], user=m.get("user", ""), text=m.get("text", ""))
-            for m in replies.get("messages", [])
-            if not m.get("bot_id") and m["ts"] != mention_ts
-        ]
+        raw = [m for m in replies.get("messages", []) if not m.get("bot_id") and m["ts"] != mention_ts]
+        names: dict[str, str] = {}
+        for uid in {m.get("user", "") for m in raw if m.get("user")}:
+            try:
+                prof = (await client.users_info(user=uid))["user"]
+                names[uid] = prof.get("profile", {}).get("display_name") or prof.get("real_name") or uid
+            except Exception:
+                names[uid] = uid
+        messages = []
+        for m in raw:
+            try:
+                link = (await client.chat_getPermalink(channel=channel, message_ts=m["ts"]))["permalink"]
+            except Exception:
+                link = ""
+            when = datetime.fromtimestamp(float(m["ts"]), ZoneInfo(TZ)).strftime("%b %d %H:%M")
+            messages.append(
+                Source(ts=m["ts"], user=m.get("user", ""), text=m.get("text", ""), permalink=link, label=f"{names.get(m.get('user', ''), 'someone')}, {when}")
+            )
         try:
             proposals, questions = await asyncio.to_thread(svc.capture, channel, thread_ts, messages)
         except Exception:
@@ -63,7 +80,7 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
         for i, p in enumerate(proposals):
-            blocks = approval_card(p)
+            blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
             if i == 0:
                 res = await client.chat_update(channel=channel, ts=working["ts"], text="Captured a requirement", blocks=blocks)
             else:
@@ -160,8 +177,21 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
         p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
         if p is None:
             return
-        where = " and opened #" + str(p.requirement.issue_number) if p.requirement.issue_number else ""
-        note = f":white_check_mark: Approved by <@{user}> as *{p.requirement.key}*. PRD is now v{version}. Added to the PRD{where}."
+        r = p.requirement
+        if p.kind == "change":
+            stale = [a.key for a in r.acs if a.ci_status == "stale"]
+            note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, PRD v{version}."
+            if r.issue_number:
+                note += f" Issue #{r.issue_number} updated."
+            if stale:
+                note += f" Stale until tests are updated to @v{r.version}: {', '.join(stale)}."
+            # Keep the diff on the card; swap the buttons for what happened.
+            kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
+            kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
+            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
+            return
+        where = " and opened #" + str(r.issue_number) if r.issue_number else ""
+        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}. Added to the PRD{where}."
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
 
     @app.action(DISMISS)

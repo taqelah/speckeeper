@@ -26,8 +26,11 @@ def _sources_line(req: Requirement, markdown: bool = False) -> str:
             link, times = meetings.setdefault(title, (s.permalink, []))
             if time and time not in times:
                 times.append(time)
-        elif (o := s.permalink or f"<@{s.user}> {s.ts}") not in others:
-            others.append(o)
+        else:
+            name = s.label or f"{s.user} {s.ts}"
+            o = f"[{name}]({s.permalink})" if markdown and s.permalink else name
+            if o not in others:
+                others.append(o)
     parts = []
     for title, (link, times) in meetings.items():
         name = f"[{title}]({link})" if markdown and link else title
@@ -56,7 +59,7 @@ class GoogleDocsPRD:
         self.docs.documents().batchUpdate(documentId=self.doc_id, body={"requests": [{"insertText": {"location": {"index": self._end()}, "text": text + "\n"}}]}).execute()
 
     def append(self, req: Requirement) -> None:
-        heading = f"{req.key} {req.title}\n"
+        heading = f"{req.key} {req.title}" + (f" (v{req.version})" if req.version > 1 else "") + "\n"
         body = f"{_gherkin_block(req)}\n{_sources_line(req)}\n\n"
         end = self._end()
         requests = [

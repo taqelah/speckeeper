@@ -105,3 +105,66 @@ def test_issue_cites_each_meeting_once_with_its_times():
     _, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     line = _sources_line(proposals[0].requirement, markdown=True)
     assert line == f"Source: [Checkout v2 kickoff](https://docs.google.com/document/d/{DOC}/edit) (00:06:45)"
+
+
+class FakeIssues:
+    def __init__(self):
+        self.created, self.updated, self.comments = [], [], []
+
+    def create(self, req):
+        self.created.append(req.key)
+        return 1
+
+    def update(self, number, req):
+        self.updated.append((number, req.version, req.title))
+
+    def comment(self, number, body):
+        self.comments.append((number, body))
+
+
+def test_a_change_makes_v2_of_the_same_requirement_and_flags_stale_tests():
+    from threadline.cards import change_card
+    from threadline.models import Source
+
+    prd, issues = FakePRD(), FakeIssues()
+    calls = []
+
+    def gen(prompt, schema):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return generate(prompt, schema)  # the kickoff
+        return {
+            "requirements": [
+                {
+                    "title": "Receipt uploads are limited to 10 MB",
+                    "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "show 'File exceeds 10 MB'"}],
+                    "source_ts": ["2.1"],
+                    "changes": "req-7",
+                }
+            ],
+            "open_questions": [],
+        }
+
+    svc = Threadline(MemoryStore(first_req=7), gen, prd, issues)
+    gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    svc.approve_group(gid, "UMAYA")
+    req7 = svc.store.get_requirement("REQ-7")
+    req7.acs[0].last_test, req7.acs[0].ci_status = "AC-7-1@v1 rejects a 30 MB file", "passing"
+    svc.store.save_requirement(req7)
+
+    thread = [Source(ts="2.1", user="UWEI", text="Storage bill doubled. Let's cap uploads at 10 MB.", label="Wei, Oct 15 16:02")]
+    (p,), _ = svc.capture("C1", "2.1", thread)
+    assert "REQ-7 | Receipt uploads are limited to 25 MB" in calls[1]  # Gemini sees what is approved
+    assert p.kind == "change" and p.target == "REQ-7"
+    card = str(change_card(p, svc.store.get_requirement("REQ-7")))
+    assert "Change to REQ-7" in card and "- AC-7-1" in card and "+ AC-7-1" in card and "Stale test" in card
+
+    done, version = svc.approve(p.id, "UMAYA", "maya")
+    r = done.requirement
+    assert (r.key, r.version, version) == ("REQ-7", 2, "1.1.0")
+    assert r.acs[0].ci_status == "stale" and r.acs[0].version == 2
+    assert {s.ts for s in r.sources} >= {"2.1"} and any(s.kind == "meeting" for s in r.sources)  # both sources kept
+    assert svc.store.get_requirement("REQ-12") is None  # no second, contradicting requirement
+    assert issues.updated == [(1, 2, "Receipt uploads are limited to 10 MB")]
+    assert "Stale until their tests are updated to @v2: AC-7-1" in issues.comments[-1][1]
+    assert prd.notes[-1].startswith("v1.1.0 · REQ-7 changed to v2")

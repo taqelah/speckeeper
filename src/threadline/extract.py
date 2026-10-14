@@ -24,6 +24,10 @@ class ExtractedRequirement(BaseModel):
     title: str = Field(description="One line stating the requirement, with its numbers, e.g. 'File upload size limit is 25 MB'")
     acceptance_criteria: list[ExtractedAC]
     source_ts: list[str] = Field(description="ts of every thread message this requirement was agreed in")
+    changes: str = Field(
+        default="",
+        description="Key of the approved requirement this one changes or contradicts (e.g. REQ-7), or empty if it is new",
+    )
 
 
 class Extraction(BaseModel):
@@ -40,6 +44,12 @@ Rules:
   using the exact numbers from the discussion.
 - source_ts lists the ts of the messages where it was stated or agreed. Never cite a ts that is not below.
 - Nothing about the product that is not in the discussion.
+- If a requirement changes, replaces or contradicts one of the approved requirements below (a new limit,
+  a different behaviour for the same thing), set `changes` to that requirement's key and write the
+  requirement as it should now read, in full. A requirement about something new leaves `changes` empty.
+
+Approved requirements (key | requirement | criteria):
+{approved}
 
 Discussion (ts | who | text):
 {thread}
@@ -53,16 +63,27 @@ def thread_text(messages: list[Source]) -> str:
     return "\n".join(f"{m.ts} | {m.user or 'notes'} | {m.text}" for m in messages)
 
 
-def extract(messages: list[Source], generate: Generate) -> tuple[list[Requirement], list[str]]:
-    raw = Extraction.model_validate(generate(PROMPT.format(thread=thread_text(messages)), Extraction))
+def approved_text(approved: list[Requirement]) -> str:
+    if not approved:
+        return "(none yet)"
+    return "\n".join(f"{r.key} | {r.title} | " + " ; ".join(a.gherkin.replace("\n", " ") for a in r.acs) for r in approved)
+
+
+def extract(messages: list[Source], generate: Generate, approved: list[Requirement] | None = None) -> tuple[list[tuple[Requirement, str]], list[str]]:
+    """Returns (requirement, key of the approved requirement it changes or "") pairs, and open questions."""
+    approved = approved or []
+    prompt = PROMPT.format(thread=thread_text(messages), approved=approved_text(approved))
+    raw = Extraction.model_validate(generate(prompt, Extraction))
     by_ts = {m.ts: m for m in messages}
-    reqs: list[Requirement] = []
+    keys = {r.key for r in approved}
+    reqs: list[tuple[Requirement, str]] = []
     for item in raw.requirements:
         sources = [by_ts[ts] for ts in item.source_ts if ts in by_ts]
         if not sources or not item.acceptance_criteria:
             continue  # no citation, no card
         acs = [AcceptanceCriterion(key="", gherkin=f"Given {a.given}\nWhen {a.when}\nThen {a.then}") for a in item.acceptance_criteria]
-        reqs.append(Requirement(key="", title=item.title.strip(), acs=acs, sources=sources))
+        changes = item.changes.strip().upper() if item.changes.strip().upper() in keys else ""
+        reqs.append((Requirement(key="", title=item.title.strip(), acs=acs, sources=sources), changes))
     return reqs, raw.open_questions
 
 

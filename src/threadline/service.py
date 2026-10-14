@@ -25,7 +25,29 @@ class PRD(Protocol):
 
 class Issues(Protocol):
     def create(self, req: Requirement) -> int: ...
+    def update(self, number: int, req: Requirement) -> None: ...
     def comment(self, number: int, body: str) -> None: ...
+
+
+def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[str]]:
+    """REQ-7 v1 + the agreed change -> REQ-7 v2. Keys stay; a criterion whose text changed takes the new
+    version, and if a test had already proved the old text it is stale until the test is updated.
+    Returns the new version and the keys of the criteria that went stale."""
+    version = old.version + 1
+    acs, stale = [], []
+    for i, ac in enumerate(new.acs, 1):
+        prev = old.acs[i - 1] if i <= len(old.acs) else None
+        key = f"AC-{old.key.split('-')[1]}-{i}"
+        if prev and prev.gherkin == ac.gherkin:
+            acs.append(prev)  # unchanged criterion: same version, same CI status
+            continue
+        status = "stale" if prev and prev.last_test else "none"
+        if status == "stale":
+            stale.append(key)
+        acs.append(ac.model_copy(update={"key": key, "version": version, "ci_status": status, "last_test": prev.last_test if prev else "", "last_run": prev.last_run if prev else ""}))
+    sources = old.sources + [s for s in new.sources if s not in old.sources]
+    changed = old.model_copy(update={"title": new.title, "version": version, "acs": acs, "sources": sources, "status": "approved"})
+    return changed, stale
 
 
 class Threadline:
@@ -36,10 +58,12 @@ class Threadline:
         self.issues = issues
 
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
-        reqs, questions = extract(messages, self.generate)
+        approved = [r for r in self.store.requirements() if r.status == "approved"]
+        reqs, questions = extract(messages, self.generate, approved)
         proposals = []
-        for req in reqs:
-            p = Proposal(id=uuid.uuid4().hex[:12], requirement=req, channel=channel, thread_ts=thread_ts, group_id=group_id)
+        for req, changes in reqs:
+            kind = "change" if changes else "new"
+            p = Proposal(id=uuid.uuid4().hex[:12], kind=kind, target=changes, requirement=req, channel=channel, thread_ts=thread_ts, group_id=group_id)
             self.store.save_proposal(p)
             proposals.append(p)
         return proposals, questions
@@ -99,12 +123,16 @@ class Threadline:
         p = self._approve(pid, user)
         if p is None:
             return None, self.prd_version
-        return p, self._release(f"{p.requirement.key} {p.requirement.title}", user_name or user, p.group_id)
+        r = p.requirement
+        what = f"{r.key} changed to v{r.version}: {r.title}" if p.kind == "change" else f"{r.key} {r.title}"
+        return p, self._release(what, user_name or user, p.group_id)
 
     def _approve(self, pid: str, user: str) -> Proposal | None:
         p = self.store.get_proposal(pid)
         if p is None or p.status != "pending":
             return None  # already decided: a double click must not file twice
+        if p.kind == "change":
+            return self._approve_change(p, user)
         n = self.store.next_req_number()
         req = p.requirement
         req.key, req.status = f"REQ-{n}", "approved"
@@ -114,6 +142,24 @@ class Threadline:
             self.prd.append(req)
         if self.issues:
             req.issue_number = self.issues.create(req)
+        self.store.save_requirement(req)
+        p.requirement, p.status, p.decided_by = req, "approved", user
+        self.store.save_proposal(p)
+        return p
+
+    def _approve_change(self, p: Proposal, user: str) -> Proposal | None:
+        old = self.store.get_requirement(p.target)
+        if old is None:
+            return None
+        req, stale = apply_change(old, p.requirement)
+        if self.prd:
+            self.prd.append(req)
+        if self.issues and req.issue_number:
+            self.issues.update(req.issue_number, req)
+            note = f"Changed to v{req.version} after approval in Slack: {req.title}."
+            if stale:
+                note += " Stale until their tests are updated to @v" + str(req.version) + ": " + ", ".join(stale) + "."
+            self.issues.comment(req.issue_number, note)
         self.store.save_requirement(req)
         p.requirement, p.status, p.decided_by = req, "approved", user
         self.store.save_proposal(p)

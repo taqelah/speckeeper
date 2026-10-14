@@ -56,3 +56,4 @@ class Proposal(BaseModel):
     status: Literal["pending", "approved", "dismissed"] = "pending"
     decided_by: str = ""
     group_id: str = ""  # proposals captured together from one meeting share a group
+    target: str = ""  # for kind "change": the approved requirement it changes, e.g. REQ-7
