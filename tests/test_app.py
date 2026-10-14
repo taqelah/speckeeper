@@ -35,3 +35,8 @@ def test_ci_with_no_matching_requirements_posts_nothing():
 
 def test_slack_rejects_unsigned_requests():
     assert client().post("/slack/events", json={"type": "url_verification", "challenge": "c"}).status_code == 401
+
+
+def test_no_public_api_listing():
+    c = client()
+    assert c.get("/docs").status_code == 404 and c.get("/openapi.json").status_code == 404

@@ -66,7 +66,7 @@ def create_app(s: Settings | None = None, svc: Threadline | None = None) -> Fast
     svc = svc or build_service(s)
     slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, lazy_drive_fetch())
     handler = AsyncSlackRequestHandler(slack)
-    api = FastAPI(title="Threadline")
+    api = FastAPI(title="Threadline", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
     @api.get("/healthz")
     async def healthz():
