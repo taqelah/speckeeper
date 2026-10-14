@@ -79,3 +79,20 @@ def test_a_later_approval_is_a_minor_version():
     later, _ = svc.capture("C1", "2.1", passages(DOC, "Sync", NOTES))
     _, version = svc.approve(later[0].id, "UMAYA")
     assert version == "1.1.0"
+
+
+def test_one_by_one_from_the_kickoff_is_still_the_baseline():
+    svc = Threadline(MemoryStore(first_req=7), generate, FakePRD())
+    gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    versions = [svc.approve(p.id, "UMAYA")[1] for p in proposals]
+    assert versions == ["1.0.0", "1.0.0"]
+    later, _ = svc.capture("C1", "2.1", passages(DOC, "Sync", NOTES))
+    assert svc.approve(later[0].id, "UMAYA")[1] == "1.1.0"
+
+
+def test_capturing_the_same_notes_twice_files_nothing_new():
+    svc = Threadline(MemoryStore(), generate, FakePRD())
+    assert svc.already_captured(DOC) is None
+    gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    seen_gid, group = svc.already_captured(DOC)
+    assert seen_gid == gid and len(group) == len(proposals)

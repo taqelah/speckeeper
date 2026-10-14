@@ -75,6 +75,14 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
         if fetch_doc is None:
             await client.chat_update(channel=channel, ts=working["ts"], text="Reading meeting notes isn't set up on this server yet.")
             return
+        if seen := svc.already_captured(doc_id):
+            _, group = seen
+            approved = [p.requirement.key for p in group if p.status == "approved"]
+            pending = sum(1 for p in group if p.status == "pending")
+            note = f"These notes are already captured: {len(approved)} approved ({', '.join(approved) or 'none yet'})"
+            note += f", {pending} still waiting on their cards above." if pending else f". The PRD is at v{svc.prd_version}."
+            await client.chat_update(channel=channel, ts=working["ts"], text=note)
+            return
         try:
             group_id, title, proposals, questions = await asyncio.to_thread(svc.capture_meeting, channel, thread_ts, doc_id, fetch_doc)
         except Exception:
