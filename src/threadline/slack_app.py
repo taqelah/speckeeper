@@ -10,17 +10,21 @@ import re
 
 from slack_bolt.async_app import AsyncApp
 
-from .cards import APPROVE, DISMISS, EDIT, approval_card, decided_card
+from .cards import APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, REVIEW_EACH, approval_card, baseline_card, decided_card, decided_group_card
 from .models import Source
+from .notes import FetchDoc, doc_id_in
 from .service import Threadline
 
 log = logging.getLogger("threadline")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
 
-HELP = "Mention me in a thread: `@Threadline capture this` to turn what was agreed into a requirement for approval."
+HELP = (
+    "Mention me in a thread: `@Threadline capture this` to turn what was agreed into a requirement for approval, "
+    "or `@Threadline capture <link to meeting notes>` to capture everything a meeting agreed."
+)
 
 
-def build_slack_app(token: str, signing_secret: str, svc: Threadline) -> AsyncApp:
+def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc: FetchDoc | None = None) -> AsyncApp:
     app = AsyncApp(token=token, signing_secret=signing_secret)
 
     @app.event("app_mention")
@@ -28,7 +32,10 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline) -> AsyncAp
         text = MENTION.sub("", event.get("text", "")).strip().lower()
         channel = event["channel"]
         thread_ts = event.get("thread_ts") or event["ts"]
-        if text.startswith("capture"):
+        doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
+        if text.startswith("capture") and doc_id:
+            await capture_meeting(client, channel, thread_ts, doc_id)
+        elif text.startswith("capture"):
             await capture(client, channel, thread_ts, mention_ts=event["ts"])
         elif text.startswith("why"):
             await say(text="Answering why is coming next: it will cite who decided, when and the thread.", thread_ts=thread_ts)
@@ -63,15 +70,73 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline) -> AsyncAp
                 res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Captured a requirement", blocks=blocks)
             svc.set_card(p.id, res["ts"])
 
+    async def capture_meeting(client, channel: str, thread_ts: str, doc_id: str) -> None:
+        working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the meeting notes…_")
+        if fetch_doc is None:
+            await client.chat_update(channel=channel, ts=working["ts"], text="Reading meeting notes isn't set up on this server yet.")
+            return
+        try:
+            group_id, title, proposals, questions = await asyncio.to_thread(svc.capture_meeting, channel, thread_ts, doc_id, fetch_doc)
+        except Exception:
+            log.exception("meeting capture failed")
+            await client.chat_update(
+                channel=channel, ts=working["ts"], text="I couldn't open those notes. Share the doc with Threadline's service account (Viewer) and try again."
+            )
+            return
+        if not proposals:
+            await client.chat_update(channel=channel, ts=working["ts"], text="I didn't find agreed requirements in those notes.")
+            return
+        await client.chat_update(
+            channel=channel, ts=working["ts"], text=f"Captured {len(proposals)} requirements from {title}", blocks=baseline_card(group_id, title, proposals, questions)
+        )
+
+    def _group_title(body) -> str:
+        first = body["message"]["blocks"][0]["text"]["text"]
+        return first.split("*")[1] if first.count("*") >= 2 else "the meeting"
+
+    @app.action(APPROVE_ALL)
+    async def on_approve_all(ack, body, client):
+        await ack()
+        gid, user = body["actions"][0]["value"], body["user"]["id"]
+        done, version = await asyncio.to_thread(svc.approve_group, gid, user, body["user"].get("name", ""))
+        if not done:
+            return
+        keys = ", ".join(p.requirement.key for p in done)
+        issues = sum(1 for p in done if p.requirement.issue_number)
+        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}. Written to the PRD" + (f", {issues} issues opened." if issues else ".")
+        await client.chat_update(
+            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), done, note)
+        )
+
+    @app.action(REVIEW_EACH)
+    async def on_review_each(ack, body, client):
+        await ack()
+        gid = body["actions"][0]["value"]
+        channel, ts = body["channel"]["id"], body["message"]["ts"]
+        pending = [p for p in svc.store.proposals_in_group(gid) if p.status == "pending"]
+        for p in pending:
+            res = await client.chat_postMessage(channel=channel, thread_ts=p.thread_ts, text="Captured a requirement", blocks=approval_card(p))
+            svc.set_card(p.id, res["ts"])
+        note = f"Reviewing {len(pending)} requirements one by one, below."
+        await client.chat_update(channel=channel, ts=ts, text=note, blocks=decided_group_card(gid, _group_title(body), pending, note))
+
+    @app.action(DISMISS_ALL)
+    async def on_dismiss_all(ack, body, client):
+        await ack()
+        gid, user = body["actions"][0]["value"], body["user"]["id"]
+        gone = [p for p in (svc.dismiss(p.id, user) for p in svc.store.proposals_in_group(gid)) if p]
+        note = f"Dismissed by <@{user}>. Nothing was written."
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), gone, note))
+
     @app.action(APPROVE)
     async def on_approve(ack, body, client):
         await ack()
         pid, user = body["actions"][0]["value"], body["user"]["id"]
-        p = await asyncio.to_thread(svc.approve, pid, user)
+        p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
         if p is None:
             return
         where = " and opened #" + str(p.requirement.issue_number) if p.requirement.issue_number else ""
-        note = f":white_check_mark: Approved by <@{user}> as *{p.requirement.key}*. Added to the PRD{where}."
+        note = f":white_check_mark: Approved by <@{user}> as *{p.requirement.key}*. PRD is now v{version}. Added to the PRD{where}."
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
 
     @app.action(DISMISS)

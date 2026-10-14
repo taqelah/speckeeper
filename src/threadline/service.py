@@ -12,11 +12,15 @@ from typing import Protocol
 from . import ci
 from .extract import Generate, extract
 from .models import Proposal, Requirement, Source
+from .notes import FetchDoc, passages
 from .store import Store
+
+BASELINE = "1.0.0"
 
 
 class PRD(Protocol):
     def append(self, req: Requirement) -> None: ...
+    def note(self, text: str) -> None: ...
 
 
 class Issues(Protocol):
@@ -31,14 +35,46 @@ class Threadline:
         self.prd = prd
         self.issues = issues
 
-    def capture(self, channel: str, thread_ts: str, messages: list[Source]) -> tuple[list[Proposal], list[str]]:
+    def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         reqs, questions = extract(messages, self.generate)
         proposals = []
         for req in reqs:
-            p = Proposal(id=uuid.uuid4().hex[:12], requirement=req, channel=channel, thread_ts=thread_ts)
+            p = Proposal(id=uuid.uuid4().hex[:12], requirement=req, channel=channel, thread_ts=thread_ts, group_id=group_id)
             self.store.save_proposal(p)
             proposals.append(p)
         return proposals, questions
+
+    def capture_meeting(self, channel: str, thread_ts: str, doc_id: str, fetch: FetchDoc) -> tuple[str, str, list[Proposal], list[str]]:
+        """Meeting notes in, one group of proposals out: (group id, notes title, proposals, open questions)."""
+        title, text = fetch(doc_id)
+        group_id = "g" + uuid.uuid4().hex[:11]
+        proposals, questions = self.capture(channel, thread_ts, passages(doc_id, title, text), group_id)
+        return group_id, title, proposals, questions
+
+    @property
+    def prd_version(self) -> str:
+        return self.store.get_meta("prd_version", "")
+
+    def _release(self, what: str, user: str) -> str:
+        """The first approval is the baseline v1.0.0; each later one is a minor version. Returns it."""
+        current = self.prd_version
+        if not current:
+            version = BASELINE
+        else:
+            major, minor, _ = (int(x) for x in current.split("."))
+            version = f"{major}.{minor + 1}.0"
+        self.store.set_meta("prd_version", version)
+        if self.prd:
+            self.prd.note(f"v{version} · {what} · approved by {user}")
+        return version
+
+    def approve_group(self, group_id: str, user: str, user_name: str = "") -> tuple[list[Proposal], str]:
+        """Approve every pending proposal from one meeting in one go: the PRD's baseline."""
+        done = [p for p in (self._approve(p.id, user) for p in self.store.proposals_in_group(group_id)) if p]
+        if not done:
+            return [], self.prd_version
+        keys = ", ".join(p.requirement.key for p in done)
+        return done, self._release(f"{len(done)} requirements from the kickoff ({keys})", user_name or user)
 
     def set_card(self, pid: str, message_ts: str) -> None:
         p = self.store.get_proposal(pid)
@@ -46,7 +82,13 @@ class Threadline:
             p.message_ts = message_ts
             self.store.save_proposal(p)
 
-    def approve(self, pid: str, user: str) -> Proposal | None:
+    def approve(self, pid: str, user: str, user_name: str = "") -> tuple[Proposal | None, str]:
+        p = self._approve(pid, user)
+        if p is None:
+            return None, self.prd_version
+        return p, self._release(f"{p.requirement.key} {p.requirement.title}", user_name or user)
+
+    def _approve(self, pid: str, user: str) -> Proposal | None:
         p = self.store.get_proposal(pid)
         if p is None or p.status != "pending":
             return None  # already decided: a double click must not file twice

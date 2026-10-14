@@ -30,16 +30,17 @@ class Extraction(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
 
 
-PROMPT = """You turn a product team's Slack thread into requirements.
+PROMPT = """You turn a product team's discussion (a Slack thread, or the notes of a meeting) into requirements.
 
 Rules:
-- Only requirements the team agreed on in this thread. Proposals nobody agreed to are open questions.
+- Only requirements the team agreed on. Proposals nobody agreed to, and anything left for later, are open questions.
+- Each requirement once, even when the notes repeat it (details, decisions, summary); cite every passage it appears in.
 - Each requirement gets 1 to 4 acceptance criteria in Given / When / Then form, testable as written,
-  using the exact numbers from the thread.
+  using the exact numbers from the discussion.
 - source_ts lists the ts of the messages where it was stated or agreed. Never cite a ts that is not below.
-- Nothing about the product that is not in the thread.
+- Nothing about the product that is not in the discussion.
 
-Thread (ts | user | text):
+Discussion (ts | who | text):
 {thread}
 """
 
@@ -48,7 +49,7 @@ Generate = Callable[[str, type[BaseModel]], dict]
 
 
 def thread_text(messages: list[Source]) -> str:
-    return "\n".join(f"{m.ts} | {m.user} | {m.text}" for m in messages)
+    return "\n".join(f"{m.ts} | {m.user or 'notes'} | {m.text}" for m in messages)
 
 
 def extract(messages: list[Source], generate: Generate) -> tuple[list[Requirement], list[str]]:

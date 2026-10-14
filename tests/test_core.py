@@ -32,10 +32,13 @@ EXTRACTION = {
 
 class FakePRD:
     def __init__(self):
-        self.appended = []
+        self.appended, self.notes = [], []
 
     def append(self, req):
         self.appended.append(req.key)
+
+    def note(self, text):
+        self.notes.append(text)
 
 
 class FakeIssues:
@@ -83,12 +86,13 @@ def test_card_has_gherkin_sources_and_buttons():
 def test_approve_writes_once_with_keys():
     svc, _, prd, issues = make()
     (p,), _ = svc.capture("C1", "1.1", THREAD)
-    done = svc.approve(p.id, "UMAYA")
+    done, version = svc.approve(p.id, "UMAYA", "maya")
+    assert version == "1.0.0" and prd.notes == ["v1.0.0 · REQ-1 File upload size limit is 25 MB · approved by maya"]
     assert done.requirement.key == "REQ-1"
     assert [ac.key for ac in done.requirement.acs] == ["AC-1-1", "AC-1-2"]
     assert done.requirement.issue_number == 42
     assert prd.appended == ["REQ-1"] and issues.created == ["REQ-1"]
-    assert svc.approve(p.id, "UMAYA") is None  # a double click files nothing twice
+    assert svc.approve(p.id, "UMAYA") == (None, "1.0.0")  # a double click files nothing twice
     assert prd.appended == ["REQ-1"]
 
 

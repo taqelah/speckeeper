@@ -17,7 +17,7 @@ def _gherkin_block(req: Requirement) -> str:
 
 
 def _sources_line(req: Requirement) -> str:
-    return "Source: " + ", ".join(s.permalink or f"<@{s.user}> {s.ts}" for s in req.sources)
+    return "Source: " + ", ".join(s.label or s.permalink or f"<@{s.user}> {s.ts}" for s in req.sources)
 
 
 class GoogleDocsPRD:
@@ -32,11 +32,18 @@ class GoogleDocsPRD:
         self.docs = build("docs", "v1", credentials=creds, cache_discovery=False)
         self.doc_id = doc_id
 
+    def _end(self) -> int:
+        doc = self.docs.documents().get(documentId=self.doc_id).execute()
+        return doc["body"]["content"][-1]["endIndex"] - 1
+
+    def note(self, text: str) -> None:
+        """A changelog line at the end of the PRD."""
+        self.docs.documents().batchUpdate(documentId=self.doc_id, body={"requests": [{"insertText": {"location": {"index": self._end()}, "text": text + "\n"}}]}).execute()
+
     def append(self, req: Requirement) -> None:
         heading = f"{req.key} {req.title}\n"
         body = f"{_gherkin_block(req)}\n{_sources_line(req)}\n\n"
-        doc = self.docs.documents().get(documentId=self.doc_id).execute()
-        end = doc["body"]["content"][-1]["endIndex"] - 1
+        end = self._end()
         requests = [
             {"insertText": {"location": {"index": end}, "text": heading + body}},
             {"updateParagraphStyle": {"range": {"startIndex": end, "endIndex": end + len(heading)}, "paragraphStyle": {"namedStyleType": "HEADING_2"}, "fields": "namedStyleType"}},

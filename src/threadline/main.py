@@ -38,10 +38,24 @@ def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
     return Threadline(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model), prd, issues)
 
 
+def lazy_drive_fetch():
+    """Drive credentials are made on first use, so the service starts before Google is set up."""
+    made: list = []
+
+    def fetch(doc_id: str):
+        if not made:
+            from .notes import drive_fetch
+
+            made.append(drive_fetch())
+        return made[0](doc_id)
+
+    return fetch
+
+
 def create_app(s: Settings | None = None, svc: Threadline | None = None) -> FastAPI:
     s = s or Settings.from_env()
     svc = svc or build_service(s)
-    slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc)
+    slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, lazy_drive_fetch())
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Threadline")
 

@@ -14,6 +14,9 @@ class Store(Protocol):
     def save_requirement(self, r: Requirement) -> None: ...
     def get_requirement(self, key: str) -> Requirement | None: ...
     def requirements(self) -> list[Requirement]: ...
+    def proposals_in_group(self, group_id: str) -> list[Proposal]: ...
+    def get_meta(self, key: str, default: str = "") -> str: ...
+    def set_meta(self, key: str, value: str) -> None: ...
 
 
 class MemoryStore:
@@ -21,6 +24,7 @@ class MemoryStore:
         self._proposals: dict[str, Proposal] = {}
         self._reqs: dict[str, Requirement] = {}
         self._next = first_req
+        self._meta: dict[str, str] = {}
 
     def save_proposal(self, p: Proposal) -> None:
         self._proposals[p.id] = p.model_copy(deep=True)
@@ -43,6 +47,15 @@ class MemoryStore:
 
     def requirements(self) -> list[Requirement]:
         return [r.model_copy(deep=True) for r in self._reqs.values()]
+
+    def proposals_in_group(self, group_id: str) -> list[Proposal]:
+        return [p.model_copy(deep=True) for p in self._proposals.values() if p.group_id == group_id]
+
+    def get_meta(self, key: str, default: str = "") -> str:
+        return self._meta.get(key, default)
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._meta[key] = value
 
 
 class FirestoreStore:
@@ -84,3 +97,14 @@ class FirestoreStore:
 
     def requirements(self) -> list[Requirement]:
         return [Requirement.model_validate(s.to_dict()) for s in self._db.collection("requirements").stream()]
+
+    def proposals_in_group(self, group_id: str) -> list[Proposal]:
+        docs = self._db.collection("proposals").where("group_id", "==", group_id).stream()
+        return [Proposal.model_validate(d.to_dict()) for d in docs]
+
+    def get_meta(self, key: str, default: str = "") -> str:
+        snap = self._db.collection("meta").document("project").get()
+        return (snap.to_dict() or {}).get(key, default) if snap.exists else default
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._db.collection("meta").document("project").set({key: value}, merge=True)

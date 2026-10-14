@@ -10,12 +10,15 @@ CiStatus = Literal["none", "passing", "failing", "stale"]
 
 
 class Source(BaseModel):
-    """A Slack message an item was taken from. Every requirement cites at least one."""
+    """Where an item was agreed: a Slack message, or a passage of meeting notes. Every requirement
+    cites at least one."""
 
-    ts: str
-    user: str
+    ts: str  # Slack message ts, or the passage id within the notes ("n12")
+    user: str  # Slack user id; empty for meeting notes
     text: str
     permalink: str = ""
+    kind: Literal["slack", "meeting"] = "slack"
+    label: str = ""  # for meeting notes: "Checkout v2 kickoff, 00:06:45"
 
 
 class AcceptanceCriterion(BaseModel):
@@ -52,3 +55,4 @@ class Proposal(BaseModel):
     message_ts: str = ""  # the card's own message, to update it after a click
     status: Literal["pending", "approved", "dismissed"] = "pending"
     decided_by: str = ""
+    group_id: str = ""  # proposals captured together from one meeting share a group
