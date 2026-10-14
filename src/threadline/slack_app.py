@@ -98,6 +98,11 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
             channel=channel, ts=working["ts"], text=f"Captured {len(proposals)} requirements from {title}", blocks=baseline_card(group_id, title, proposals, questions)
         )
 
+    STALE = "This card is from before Threadline restarted, so its requirements are gone. Capture the notes again."
+
+    async def stale(client, body) -> None:
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}])
+
     def _group_title(body) -> str:
         first = body["message"]["blocks"][0]["text"]["text"]
         return first.split("*")[1] if first.count("*") >= 2 else "the meeting"
@@ -106,6 +111,9 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
     async def on_approve_all(ack, body, client):
         await ack()
         gid, user = body["actions"][0]["value"], body["user"]["id"]
+        if not svc.store.proposals_in_group(gid):
+            await stale(client, body)
+            return
         done, version = await asyncio.to_thread(svc.approve_group, gid, user, body["user"].get("name", ""))
         if not done:
             return
@@ -121,6 +129,9 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
         await ack()
         gid = body["actions"][0]["value"]
         channel, ts = body["channel"]["id"], body["message"]["ts"]
+        if not svc.store.proposals_in_group(gid):
+            await stale(client, body)
+            return
         pending = [p for p in svc.store.proposals_in_group(gid) if p.status == "pending"]
         for p in pending:
             res = await client.chat_postMessage(channel=channel, thread_ts=p.thread_ts, text="Captured a requirement", blocks=approval_card(p))
@@ -132,6 +143,9 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
     async def on_dismiss_all(ack, body, client):
         await ack()
         gid, user = body["actions"][0]["value"], body["user"]["id"]
+        if not svc.store.proposals_in_group(gid):
+            await stale(client, body)
+            return
         gone = [p for p in (svc.dismiss(p.id, user) for p in svc.store.proposals_in_group(gid)) if p]
         note = f"Dismissed by <@{user}>. Nothing was written."
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), gone, note))
@@ -140,6 +154,9 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
     async def on_approve(ack, body, client):
         await ack()
         pid, user = body["actions"][0]["value"], body["user"]["id"]
+        if svc.store.get_proposal(pid) is None:
+            await stale(client, body)
+            return
         p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
         if p is None:
             return

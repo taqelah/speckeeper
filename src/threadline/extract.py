@@ -6,6 +6,7 @@ is dropped. A card with fewer, correct items beats one with an invented requirem
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from pydantic import BaseModel, Field
@@ -80,6 +81,12 @@ def gemini_generate(project: str, location: str, model: str) -> Generate:
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1),
         )
+        u = res.usage_metadata
+        if u:  # tokens are what Gemini bills for; logged per call for the cost slide and the evals
+            logging.getLogger("threadline.usage").info(
+                "model=%s input=%s output=%s thinking=%s", model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
+            )
+            generate.last_usage = {"input": u.prompt_token_count or 0, "output": u.candidates_token_count or 0, "thinking": u.thoughts_token_count or 0}
         return res.parsed.model_dump() if isinstance(res.parsed, BaseModel) else (res.parsed or {})
 
     return generate

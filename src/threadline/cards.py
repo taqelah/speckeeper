@@ -69,7 +69,7 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
         lines.append(f"• *{req.title}* · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"From *{title}* I captured {len(proposals)} agreed requirements:"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines) or "_Nothing left to review._"}},
     ]
     if questions:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Not captured, still open: " + " · ".join(questions)}]})
