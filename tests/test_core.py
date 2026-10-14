@@ -141,3 +141,15 @@ def test_junit_parsing_reads_keys_and_versions():
 
 def test_prompt_forbids_uncited_items():
     assert "Never cite a ts that is not below" in PROMPT
+
+
+def test_file_store_survives_a_restart(tmp_path):
+    from threadline.store import FileStore
+
+    path = tmp_path / "store.json"
+    svc = Threadline(FileStore(str(path), first_req=7), lambda p, s: EXTRACTION)
+    (p,), _ = svc.capture("C1", "1.1", THREAD)
+    svc.approve(p.id, "UMAYA")
+    again = Threadline(FileStore(str(path)), lambda p, s: EXTRACTION)  # a new process reads the file
+    assert again.store.get_requirement("REQ-7").title == "File upload size limit is 25 MB"
+    assert again.prd_version == "1.0.0" and again.store.next_req_number() == 8

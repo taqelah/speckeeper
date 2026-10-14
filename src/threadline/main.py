@@ -13,7 +13,7 @@ from .config import Settings
 from .extract import Generate, gemini_generate
 from .service import Threadline
 from .slack_app import build_slack_app
-from .store import FirestoreStore, MemoryStore
+from .store import FileStore, FirestoreStore, MemoryStore
 
 logging.basicConfig(level=logging.INFO)
 
@@ -25,7 +25,12 @@ class CiRun(BaseModel):
 
 
 def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
-    store = FirestoreStore(s.gcp_project, s.first_req) if s.store == "firestore" else MemoryStore(s.first_req)
+    if s.store == "firestore":
+        store = FirestoreStore(s.gcp_project, s.first_req)
+    elif s.store == "file":
+        store = FileStore(".data/store.json", s.first_req)
+    else:
+        store = MemoryStore(s.first_req)
     prd = issues = None
     if s.prd_doc_id:
         from .integrations import GoogleDocsPRD

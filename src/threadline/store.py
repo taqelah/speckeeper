@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Protocol
 
 from .models import Proposal, Requirement
@@ -56,6 +58,49 @@ class MemoryStore:
 
     def set_meta(self, key: str, value: str) -> None:
         self._meta[key] = value
+
+
+class FileStore(MemoryStore):
+    """MemoryStore saved to a JSON file after every write: for local runs, so a restart keeps what
+    was captured and approved. Cloud Run uses Firestore."""
+
+    def __init__(self, path: str, first_req: int = 1) -> None:
+        super().__init__(first_req)
+        self._path = Path(path)
+        if self._path.exists():
+            data = json.loads(self._path.read_text())
+            self._proposals = {k: Proposal.model_validate(v) for k, v in data["proposals"].items()}
+            self._reqs = {k: Requirement.model_validate(v) for k, v in data["requirements"].items()}
+            self._next, self._meta = data["next"], data["meta"]
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "proposals": {k: v.model_dump() for k, v in self._proposals.items()},
+            "requirements": {k: v.model_dump() for k, v in self._reqs.items()},
+            "next": self._next,
+            "meta": self._meta,
+        }
+        tmp = self._path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(self._path)  # a crash mid-write never leaves half a file
+
+    def save_proposal(self, p: Proposal) -> None:
+        super().save_proposal(p)
+        self._save()
+
+    def next_req_number(self) -> int:
+        n = super().next_req_number()
+        self._save()
+        return n
+
+    def save_requirement(self, r: Requirement) -> None:
+        super().save_requirement(r)
+        self._save()
+
+    def set_meta(self, key: str, value: str) -> None:
+        super().set_meta(key, value)
+        self._save()
 
 
 class FirestoreStore:
