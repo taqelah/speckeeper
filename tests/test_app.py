@@ -9,7 +9,7 @@ from threadline.store import MemoryStore
 
 
 def settings(**kw):
-    base = dict(slack_bot_token="xoxb-test", slack_signing_secret="secret", gcp_project="p", gcp_location="l", pro_model="m",
+    base = dict(slack_bot_token="xoxb-test", slack_signing_secret="secret", gcp_project="p", gcp_location="l", gemini_location="global", pro_model="m",
                 flash_model="m", prd_doc_id="", github_token="", github_repo="", ci_secret="s3cret", store="memory")
     return Settings(**{**base, **kw})
 

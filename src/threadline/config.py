@@ -12,6 +12,7 @@ class Settings:
     slack_signing_secret: str
     gcp_project: str
     gcp_location: str
+    gemini_location: str  # newer Gemini models are served from the global endpoint, not every region
     pro_model: str
     flash_model: str
     prd_doc_id: str
@@ -29,8 +30,9 @@ class Settings:
             slack_signing_secret=env("SLACK_SIGNING_SECRET", ""),
             gcp_project=env("GCP_PROJECT", ""),
             gcp_location=env("GCP_LOCATION", "asia-southeast1"),
-            pro_model=env("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
-            flash_model=env("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
+            gemini_location=env("GEMINI_LOCATION", "global"),
+            pro_model=env("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview"),
+            flash_model=env("GEMINI_FLASH_MODEL", "gemini-3.8-flash"),
             prd_doc_id=env("PRD_DOC_ID", ""),
             github_token=env("GITHUB_TOKEN", ""),
             github_repo=env("GITHUB_REPO", ""),

@@ -35,7 +35,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
         from .integrations import GitHubIssues
 
         issues = GitHubIssues(s.github_token, s.github_repo)
-    return Threadline(store, generate or gemini_generate(s.gcp_project, s.gcp_location, s.pro_model), prd, issues)
+    return Threadline(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model), prd, issues)
 
 
 def create_app(s: Settings | None = None, svc: Threadline | None = None) -> FastAPI:
