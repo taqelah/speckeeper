@@ -60,3 +60,16 @@ def drive_fetch() -> FetchDoc:
         return meta["name"], body.decode("utf-8") if isinstance(body, bytes) else body
 
     return fetch
+
+
+def public_fetch(doc_id: str) -> tuple[str, str]:
+    """A doc shared as "anyone with the link can view", read through its plain-text export. For demo
+    notes only: real meeting notes stay private and go through drive_fetch."""
+    import httpx
+
+    res = httpx.get(f"https://docs.google.com/document/d/{doc_id}/export", params={"format": "txt"}, follow_redirects=True, timeout=20)
+    if res.status_code != 200 or "text/plain" not in res.headers.get("content-type", ""):
+        raise PermissionError("doc is not shared by link")
+    text = res.content.decode("utf-8-sig")
+    title = next((l.strip() for l in text.splitlines() if l.strip()), "Meeting notes")
+    return title, text

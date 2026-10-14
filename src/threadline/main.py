@@ -43,11 +43,15 @@ def lazy_drive_fetch():
     made: list = []
 
     def fetch(doc_id: str):
-        if not made:
-            from .notes import drive_fetch
+        from .notes import drive_fetch, public_fetch
 
-            made.append(drive_fetch())
-        return made[0](doc_id)
+        try:
+            if not made:
+                made.append(drive_fetch())
+            return made[0](doc_id)
+        except Exception:
+            logging.getLogger("threadline").info("Drive read failed for %s; trying the doc's public link", doc_id)
+            return public_fetch(doc_id)
 
     return fetch
 
