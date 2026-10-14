@@ -7,6 +7,7 @@ whole loop can be tested with fakes.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Protocol
 
 from . import ci
@@ -16,6 +17,10 @@ from .notes import FetchDoc, passages
 from .store import Store
 
 BASELINE = "1.0.0"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class PRD(Protocol):
@@ -51,11 +56,12 @@ def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[
 
 
 class Threadline:
-    def __init__(self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None) -> None:
+    def __init__(self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None, asker=None) -> None:
         self.store = store
         self.generate = generate
         self.prd = prd
         self.issues = issues
+        self.asker = asker  # the ADK agent that answers questions (agent.Asker)
 
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
@@ -143,7 +149,7 @@ class Threadline:
         if self.issues:
             req.issue_number = self.issues.create(req)
         self.store.save_requirement(req)
-        p.requirement, p.status, p.decided_by = req, "approved", user
+        p.requirement, p.status, p.decided_by, p.decided_at = req, "approved", user, _now()
         self.store.save_proposal(p)
         return p
 
@@ -161,7 +167,8 @@ class Threadline:
                 note += " Stale until their tests are updated to @v" + str(req.version) + ": " + ", ".join(stale) + "."
             self.issues.comment(req.issue_number, note)
         self.store.save_requirement(req)
-        p.requirement, p.status, p.decided_by = req, "approved", user
+        p.previous = old
+        p.requirement, p.status, p.decided_by, p.decided_at = req, "approved", user, _now()
         self.store.save_proposal(p)
         return p
 
@@ -169,7 +176,7 @@ class Threadline:
         p = self.store.get_proposal(pid)
         if p is None or p.status != "pending":
             return None
-        p.status, p.decided_by = "dismissed", user
+        p.status, p.decided_by, p.decided_at = "dismissed", user, _now()
         p.requirement.status = "dismissed"
         self.store.save_proposal(p)
         return p

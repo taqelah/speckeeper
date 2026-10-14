@@ -24,7 +24,8 @@ TZ = "Asia/Singapore"  # how message times are written in citations
 
 HELP = (
     "Mention me in a thread: `@Threadline capture this` to turn what was agreed into a requirement for approval, "
-    "or `@Threadline capture <link to meeting notes>` to capture everything a meeting agreed."
+    "`@Threadline capture <link to meeting notes>` to capture everything a meeting agreed, "
+    "or ask me anything about the requirements: `@Threadline why is the upload limit 10 MB?`"
 )
 
 
@@ -41,10 +42,19 @@ def build_slack_app(token: str, signing_secret: str, svc: Threadline, fetch_doc:
             await capture_meeting(client, channel, thread_ts, doc_id)
         elif text.startswith("capture"):
             await capture(client, channel, thread_ts, mention_ts=event["ts"])
-        elif text.startswith("why"):
-            await say(text="Answering why is coming next: it will cite who decided, when and the thread.", thread_ts=thread_ts)
+        elif svc.asker and (text.endswith("?") or text.split(" ", 1)[0] in {"why", "what", "when", "who", "which", "is", "did", "has", "how"}):
+            await answer(client, channel, thread_ts, MENTION.sub("", event.get("text", "")).strip(), event.get("user", "slack"))
         else:
             await say(text=HELP, thread_ts=thread_ts)
+
+    async def answer(client, channel: str, thread_ts: str, question: str, user: str) -> None:
+        working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Looking it up…_")
+        try:
+            reply = await svc.asker.ask(question, user)
+        except Exception:
+            log.exception("question failed")
+            reply = "I couldn't look that up just now. Try again in a minute."
+        await client.chat_update(channel=channel, ts=working["ts"], text=reply)
 
     async def capture(client, channel: str, thread_ts: str, mention_ts: str) -> None:
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the thread…_")

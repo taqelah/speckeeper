@@ -17,6 +17,7 @@ class Store(Protocol):
     def get_requirement(self, key: str) -> Requirement | None: ...
     def requirements(self) -> list[Requirement]: ...
     def proposals_in_group(self, group_id: str) -> list[Proposal]: ...
+    def proposals_for(self, key: str) -> list[Proposal]: ...
     def get_meta(self, key: str, default: str = "") -> str: ...
     def set_meta(self, key: str, value: str) -> None: ...
 
@@ -52,6 +53,11 @@ class MemoryStore:
 
     def proposals_in_group(self, group_id: str) -> list[Proposal]:
         return [p.model_copy(deep=True) for p in self._proposals.values() if p.group_id == group_id]
+
+    def proposals_for(self, key: str) -> list[Proposal]:
+        """Every decided proposal that created or changed a requirement, oldest first."""
+        mine = [p for p in self._proposals.values() if p.target == key or (p.kind == "new" and p.requirement.key == key)]
+        return [p.model_copy(deep=True) for p in sorted(mine, key=lambda p: p.decided_at)]
 
     def get_meta(self, key: str, default: str = "") -> str:
         return self._meta.get(key, default)
@@ -153,3 +159,9 @@ class FirestoreStore:
 
     def set_meta(self, key: str, value: str) -> None:
         self._db.collection("meta").document("project").set({key: value}, merge=True)
+
+    def proposals_for(self, key: str) -> list[Proposal]:
+        col = self._db.collection("proposals")
+        found = {d.id: d.to_dict() for d in col.where("target", "==", key).stream()}
+        found.update({d.id: d.to_dict() for d in col.where("requirement.key", "==", key).stream()})
+        return sorted((Proposal.model_validate(v) for v in found.values()), key=lambda p: p.decided_at)

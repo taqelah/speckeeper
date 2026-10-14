@@ -57,3 +57,5 @@ class Proposal(BaseModel):
     decided_by: str = ""
     group_id: str = ""  # proposals captured together from one meeting share a group
     target: str = ""  # for kind "change": the approved requirement it changes, e.g. REQ-7
+    decided_at: str = ""  # ISO time of the approval or dismissal
+    previous: Requirement | None = None  # for an approved change: the requirement as it was before
