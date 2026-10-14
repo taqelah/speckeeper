@@ -1,0 +1,82 @@
+"""Capture: a Slack thread in, cited requirements with Gherkin acceptance criteria out.
+
+Gemini returns structured JSON; anything that does not cite a message that is really in the thread
+is dropped. A card with fewer, correct items beats one with an invented requirement.
+"""
+
+from __future__ import annotations
+
+from typing import Callable
+
+from pydantic import BaseModel, Field
+
+from .models import AcceptanceCriterion, Requirement, Source
+
+
+class ExtractedAC(BaseModel):
+    given: str
+    when: str
+    then: str
+
+
+class ExtractedRequirement(BaseModel):
+    title: str = Field(description="One line stating the requirement, with its numbers, e.g. 'File upload size limit is 25 MB'")
+    acceptance_criteria: list[ExtractedAC]
+    source_ts: list[str] = Field(description="ts of every thread message this requirement was agreed in")
+
+
+class Extraction(BaseModel):
+    requirements: list[ExtractedRequirement]
+    open_questions: list[str] = Field(default_factory=list)
+
+
+PROMPT = """You turn a product team's Slack thread into requirements.
+
+Rules:
+- Only requirements the team agreed on in this thread. Proposals nobody agreed to are open questions.
+- Each requirement gets 1 to 4 acceptance criteria in Given / When / Then form, testable as written,
+  using the exact numbers from the thread.
+- source_ts lists the ts of the messages where it was stated or agreed. Never cite a ts that is not below.
+- Nothing about the product that is not in the thread.
+
+Thread (ts | user | text):
+{thread}
+"""
+
+# (prompt, schema) -> parsed JSON as a dict. Injected so tests never call Gemini.
+Generate = Callable[[str, type[BaseModel]], dict]
+
+
+def thread_text(messages: list[Source]) -> str:
+    return "\n".join(f"{m.ts} | {m.user} | {m.text}" for m in messages)
+
+
+def extract(messages: list[Source], generate: Generate) -> tuple[list[Requirement], list[str]]:
+    raw = Extraction.model_validate(generate(PROMPT.format(thread=thread_text(messages)), Extraction))
+    by_ts = {m.ts: m for m in messages}
+    reqs: list[Requirement] = []
+    for item in raw.requirements:
+        sources = [by_ts[ts] for ts in item.source_ts if ts in by_ts]
+        if not sources or not item.acceptance_criteria:
+            continue  # no citation, no card
+        acs = [AcceptanceCriterion(key="", gherkin=f"Given {a.given}\nWhen {a.when}\nThen {a.then}") for a in item.acceptance_criteria]
+        reqs.append(Requirement(key="", title=item.title.strip(), acs=acs, sources=sources))
+    return reqs, raw.open_questions
+
+
+def gemini_generate(project: str, location: str, model: str) -> Generate:
+    """Gemini on Vertex AI with a response schema, so the reply is JSON of that shape."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(vertexai=True, project=project, location=location)
+
+    def generate(prompt: str, schema: type[BaseModel]) -> dict:
+        res = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1),
+        )
+        return res.parsed.model_dump() if isinstance(res.parsed, BaseModel) else (res.parsed or {})
+
+    return generate
