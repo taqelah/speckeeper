@@ -24,6 +24,9 @@ class Settings:
     watch_quiet_seconds: float = 15  # thread watch looks at a thread once it has been quiet this long
     watch_min_confidence: float = 0.8  # below this, thread watch stays silent
     watch_thinking: str = "low"  # how much Flash reasons before a triage answer: low keeps suggestions quick
+    approvers: tuple[str, ...] = ()  # Slack user ids who may approve or dismiss; empty: anyone in the channel
+    requests_per_user: int = 10  # captures and questions per user per window: they cost Gemini quota
+    requests_window_seconds: float = 600
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -45,4 +48,7 @@ class Settings:
             watch_quiet_seconds=float(env("WATCH_QUIET_SECONDS", "15")),
             watch_min_confidence=float(env("WATCH_MIN_CONFIDENCE", "0.8")),
             watch_thinking=env("WATCH_THINKING", "low"),
+            approvers=tuple(u.strip() for u in env("APPROVERS", "").split(",") if u.strip()),
+            requests_per_user=int(env("REQUESTS_PER_USER", "10")),
+            requests_window_seconds=float(env("REQUESTS_WINDOW_SECONDS", "600")),
         )

@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit hashes: a moved tag can't change what runs here.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - run: uv sync --locked
+      - run: uv run pytest -q
+      - name: Check dependencies for known vulnerabilities
+        run: |
+          uv export --no-hashes --no-dev --format requirements-txt | grep -v '^-e\|^\.' > requirements.txt
+          uvx pip-audit -r requirements.txt --progress-spinner off

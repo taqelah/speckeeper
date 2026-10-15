@@ -12,8 +12,23 @@ REVIEW_SUGGESTION, IGNORE_SUGGESTION = "review_suggestion", "ignore_suggestion"
 
 
 def _esc(text: str) -> str:
-    """Slack's three special characters, so model text can't post links or pings."""
+    """Slack's three special characters, so text from Gemini or from people can't post links or pings
+    (<!channel>, <@U…>, <url|label>) through a card."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _label(text: str) -> str:
+    """Text for inside <url|label>: escaped, and no | or > to close the link early."""
+    return _esc(text).replace("|", "¦")
+
+
+SPECIAL = __import__("re").compile(r"<!(channel|here|everyone|subteam\^[^>|]*)(\|[^>]*)?>")
+
+
+def defang(text: str) -> str:
+    """For replies that are meant to carry Slack links (the agent's answers): keep <url|label> and user
+    mentions, but turn @channel, @here, @everyone and group pings into plain text."""
+    return SPECIAL.sub(lambda m: "@" + m.group(1).split("^")[0], text)
 
 
 def suggestion_card(s, channel: str, thread_ts: str) -> list[dict]:
@@ -38,14 +53,15 @@ def _gherkin(req: Requirement) -> str:
         key = ac.key or f"AC-{i}"
         for j, step in enumerate(ac.gherkin.splitlines()):
             lines.append(f"{key:<8}{step}" if j == 0 else f"{'':<8}{step}")
-    return "\n".join(lines)
+    return _esc("\n".join(lines).replace("```", "ʼʼʼ"))
 
 
 def _source(s) -> str:
     if s.kind == "meeting":
-        return f"<{s.permalink}|{s.label}>" if s.permalink else s.label
+        return f"<{s.permalink}|{_label(s.label)}>" if s.permalink else _esc(s.label)
     when = s.label.split(", ", 1)[-1] if s.label else s.ts
-    return f"<@{s.user}> " + (f"<{s.permalink}|{when}>" if s.permalink else when)
+    user = f"<@{s.user}> " if s.user.isalnum() else ""
+    return user + (f"<{s.permalink}|{_label(when)}>" if s.permalink else _esc(when))
 
 
 def _sources(req: Requirement) -> str:
@@ -63,7 +79,7 @@ def approval_card(p: Proposal) -> list[dict]:
     head = f"From {where} I captured 1 requirement and {n} acceptance {'criterion' if n == 1 else 'criteria'}:"
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": head}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{req.key or 'REQ (new)'}  {req.title}*\n```{_gherkin(req)}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{req.key or 'REQ (new)'}  {_esc(req.title)}*\n```{_gherkin(req)}```"}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": _sources(req)}]},
         {
             "type": "actions",
@@ -91,13 +107,13 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
         req = p.requirement
         times = sorted({s.label.split(", ")[-1] for s in req.sources if s.kind == "meeting" and ", " in s.label})
         when = f" _({', '.join(times)})_" if times else ""
-        lines.append(f"• *{req.title}* · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
+        lines.append(f"• *{_esc(req.title)}* · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"From *{title}* I captured {len(proposals)} agreed requirements:"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"From *{_esc(title)}* I captured {len(proposals)} agreed requirements:"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines) or "_Nothing left to review._"}},
     ]
     if questions:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Not captured, still open: " + " · ".join(questions)}]})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Not captured, still open: " + " · ".join(_esc(q) for q in questions)}]})
     blocks.append(
         {
             "type": "actions",
@@ -119,7 +135,7 @@ def decided_group_card(group_id: str, title: str, proposals: list[Proposal], not
 
 
 def _steps(gherkin: str) -> str:
-    return " ".join(line.strip() for line in gherkin.splitlines())
+    return _esc(" ".join(line.strip() for line in gherkin.splitlines()).replace("```", "ʼʼʼ"))
 
 
 def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> list[dict]:
@@ -128,8 +144,8 @@ def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> list
     new = p.requirement
     if old is None:
         return [{"type": "section", "text": {"type": "mrkdwn", "text": f"This changes {p.target}, which no longer exists."}}]
-    origin = next((s.label.split(", ")[0] for s in old.sources if s.kind == "meeting"), "")
-    head = f":warning: *Change to {old.key}* (v{old.version}" + (f", from {origin}" if origin else "") + f"): {old.title} → *{new.title}*"
+    origin = _esc(next((s.label.split(", ")[0] for s in old.sources if s.kind == "meeting"), ""))
+    head = f":warning: *Change to {old.key}* (v{old.version}" + (f", from {origin}" if origin else "") + f"): {_esc(old.title)} → *{_esc(new.title)}*"
     diff = []
     for i in range(max(len(old.acs), len(new.acs))):
         key = f"AC-{old.key.split('-')[1]}-{i + 1}"
@@ -148,7 +164,7 @@ def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> list
     ]
     if stale:
         blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(f":warning: Stale test: `{a.last_test}` proves the old text and still passes" for a in stale)}}
+            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(f":warning: Stale test: `{_esc(a.last_test)}` proves the old text and still passes" for a in stale)}}
         )
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Was: " + _sources(old).removeprefix("Source: ") + "   ·   Now: " + _sources(new).removeprefix("Source: ")}]})
     if decided:

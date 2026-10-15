@@ -83,16 +83,44 @@ This is a hackathon prototype.
 
 | Works today | In progress |
 |---|---|
-| Meeting and thread capture with citations | Writing the PRD into Google Docs (code done; needs the service account's access) |
-| Approval cards, baseline v1.0.0 and minor versions | Deploy on Cloud Run with Firestore (`Dockerfile`, `deploy.sh` ready) |
-| GitHub issues with keyed criteria | Drift detection on every channel message, not only on capture |
-| CI verification per criterion, with stale tests | Measured results on labelled threads (eval suite) |
+| Meeting and thread capture with citations | Measured results on labelled threads (eval suite) |
+| Approval cards, baseline v1.0.0 and minor versions | Drift checks on channel messages outside threads Spec Keeper is in |
+| The PRD in Google Docs, rebuilt on every approval and CI run | An Edit button on cards |
+| GitHub issues with keyed criteria | |
+| CI verification per criterion, with stale tests | |
 | Change detection: REQ-7 v1 to v2 with a diff | |
+| Thread watch: suggests a capture when a thread it was mentioned in changes a requirement | |
 | ADK question agent with sources | |
+| Deployed on Cloud Run with Firestore and Secret Manager | |
 
 The demo product Spec Keeper watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
 a receipt upload page whose Playwright tests are named after REQ-7's criteria, with a GitHub Actions
 workflow that posts results to Spec Keeper.
+
+## Security and data
+
+Checked against the OWASP API, Web and LLM Top 10. In short:
+
+- **Nothing is written without a person.** Gemini proposes; only a click on Approve changes the PRD or
+  GitHub. Set `APPROVERS` (Slack user ids) to limit who can approve or dismiss.
+- **Prompt injection.** Gemini's rules go in its system instruction; Slack messages and meeting notes go in
+  the message as fenced, one-line data. Messages that give instructions or claim authority are never
+  captured, and every requirement must cite a message that is really in the thread.
+- **Output.** Text from people or Gemini is escaped before it reaches Slack (no `<!channel>` or crafted
+  links) and @mentions in GitHub text are defused.
+- **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
+  JUnit XML, parsed with `defusedxml`. Each user gets 10 Gemini requests per 10 minutes, and a daily token
+  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached.
+- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits and the budget
+  are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+- **Supply chain.** CI runs the tests and `pip-audit`; Dependabot watches dependencies and actions; actions
+  are pinned to commit hashes.
+
+**Data handling.** Spec Keeper reads only channels it is invited to, and only the threads it is mentioned
+in. The text of those messages and of shared meeting notes, which may include people's names, is sent to
+Gemini on Vertex AI in our Google Cloud project; Google does not use it to train models. Requirements,
+their sources (message text, author id and link) and proposals are stored in Firestore in Singapore.
+Logs record decisions and token counts, not message text. Secrets live in Secret Manager.
 
 ## Run it
 

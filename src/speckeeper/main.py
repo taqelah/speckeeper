@@ -6,10 +6,13 @@ import hmac
 import logging
 import xml.etree.ElementTree as ET
 
+from defusedxml import DefusedXmlException
+
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
+from .audit import audit
 from .config import Settings
 from .extract import Generate, gemini_generate
 from .service import SpecKeeper
@@ -17,6 +20,9 @@ from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
 
 logging.basicConfig(level=logging.INFO)
+
+
+MAX_JUNIT_BYTES = 2_000_000
 
 
 class CiRun(BaseModel):
@@ -74,7 +80,8 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     s = s or Settings.from_env()
     svc = svc or build_service(s)
     slack = build_slack_app(
-        s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait, quiet=s.watch_quiet_seconds
+        s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait, quiet=s.watch_quiet_seconds,
+        approvers=s.approvers, per_user=s.requests_per_user, per_seconds=s.requests_window_seconds,
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
@@ -86,15 +93,21 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
 
     @api.post("/slack/events")
     async def slack_events(req: Request):
-        return await handler.handle(req)
+        res = await handler.handle(req)
+        if res.status_code == 401:  # Bolt refused the signature (or it was too old): someone is probing
+            audit("slack_signature_refused", "WARNING", ip=req.client.host if req.client else "")
+        return res
 
     @api.post("/ci")
     async def ci_webhook(run: CiRun, x_speckeeper_secret: str = Header(default="")):
         if not s.ci_secret or not hmac.compare_digest(x_speckeeper_secret, s.ci_secret):
+            audit("ci_secret_refused", "WARNING", run=run.run_id[:80])
             raise HTTPException(status_code=401, detail="bad secret")
+        if len(run.junit_xml) > MAX_JUNIT_BYTES:
+            raise HTTPException(status_code=413, detail="junit_xml is over 2 MB")
         try:
             changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
-        except ET.ParseError:
+        except (ET.ParseError, DefusedXmlException):
             raise HTTPException(status_code=400, detail="junit_xml is not valid XML")
         for _req, text in changed:
             await slack.client.chat_postMessage(channel=run.channel, text=text)

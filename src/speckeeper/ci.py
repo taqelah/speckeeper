@@ -9,7 +9,7 @@ is marked stale instead of passing.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+from defusedxml.ElementTree import fromstring  # no entity expansion or external entities
 from dataclasses import dataclass
 
 from .models import Requirement
@@ -26,7 +26,7 @@ class TestResult:
 
 
 def parse_junit(xml_text: str) -> list[TestResult]:
-    root = ET.fromstring(xml_text)
+    root = fromstring(xml_text, forbid_dtd=True)
     results = []
     for case in root.iter("testcase"):
         name = case.get("name", "")

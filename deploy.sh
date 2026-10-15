@@ -13,5 +13,5 @@ gcloud run deploy speckeeper --quiet \
   --service-account "$SA" \
   --allow-unauthenticated \
   --min-instances 1 --max-instances 2 --no-cpu-throttling \
-  --set-env-vars "GCP_PROJECT=${GCP_PROJECT},GCP_LOCATION=${REGION},GEMINI_LOCATION=global,SPECKEEPER_STORE=firestore,FIRST_REQ=${FIRST_REQ:-1},GITHUB_REPO=${GITHUB_REPO:-},PRD_DOC_ID=${PRD_DOC_ID:-}" \
+  --set-env-vars "GCP_PROJECT=${GCP_PROJECT},GCP_LOCATION=${REGION},GEMINI_LOCATION=global,SPECKEEPER_STORE=firestore,FIRST_REQ=${FIRST_REQ:-1},GITHUB_REPO=${GITHUB_REPO:-},PRD_DOC_ID=${PRD_DOC_ID:-},APPROVERS=${APPROVERS:-}" \
   --set-secrets "SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest,GITHUB_TOKEN=github-token:latest,CI_SECRET=ci-secret:latest"

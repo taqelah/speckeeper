@@ -19,6 +19,12 @@ def _gherkin_block(req: Requirement) -> str:
     return "\n".join(out)
 
 
+def no_mentions(text: str) -> str:
+    """GitHub text from meetings and Gemini: '@org/team' or '@user' would notify people, so a zero-width
+    space after each @ keeps the text readable and the ping out."""
+    return re.sub(r"@(?=[A-Za-z0-9])", "@\u200b", text)
+
+
 def _sources_line(req: Requirement, markdown: bool = False) -> str:
     """One citation per meeting (with its times) or Slack message, never the same one twice."""
     parts = [(f"[{label}]({link})" if markdown and link else label) + times for label, times, link in source_parts(req)]
@@ -56,20 +62,20 @@ class GitHubIssues:
         )
 
     def create(self, req: Requirement) -> int:
-        res = self.http.post(f"/repos/{self.repo}/issues", json={"title": f"{req.key} {req.title}", "body": self._body(req), "labels": ["requirement", "ac-keyed"]})
+        res = self.http.post(f"/repos/{self.repo}/issues", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req), "labels": ["requirement", "ac-keyed"]})
         res.raise_for_status()
         return res.json()["number"]
 
     def update(self, number: int, req: Requirement) -> None:
-        self.http.patch(f"/repos/{self.repo}/issues/{number}", json={"title": f"{req.key} {req.title}", "body": self._body(req)}).raise_for_status()
+        self.http.patch(f"/repos/{self.repo}/issues/{number}", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req)}).raise_for_status()
 
     @staticmethod
     def _body(req: Requirement) -> str:
-        return "\n".join(
+        return no_mentions("\n".join(
             [
                 "## Acceptance criteria",
                 "```gherkin",
-                _gherkin_block(req),
+                _gherkin_block(req).replace("```", "ʼʼʼ"),
                 "```",
                 "## Verification",
                 *[f"- [ ] `{ac.key}@v{ac.version}` · a test whose name starts with this key" for ac in req.acs],
@@ -78,7 +84,7 @@ class GitHubIssues:
                 "",
                 "_Opened by Spec Keeper after approval in Slack._",
             ]
-        )
+        ))
 
     def comment(self, number: int, body: str) -> None:
-        self.http.post(f"/repos/{self.repo}/issues/{number}/comments", json={"body": body}).raise_for_status()
+        self.http.post(f"/repos/{self.repo}/issues/{number}/comments", json={"body": no_mentions(body)}).raise_for_status()

@@ -25,6 +25,11 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 BASELINE = "1.0.0"
+MAX_NOTES_CHARS = 100_000  # about 40 pages; more would cost a lot and lose detail
+
+
+class NotesTooLong(ValueError):
+    pass
 
 
 def _now() -> str:
@@ -167,7 +172,7 @@ class SpecKeeper:
 
     def not_a_change(self, channel: str, thread_ts: str, user: str, summary: str) -> None:
         """A false alarm, kept for the evals' false-alarm rate."""
-        log.info("thread watch false alarm in %s/%s by %s: %s", channel, thread_ts, user, summary)
+        log.info("thread watch false alarm in %s/%s by %s", channel, thread_ts, user)
         self.store.set_meta("watch_false_alarms", str(int(self.store.get_meta("watch_false_alarms", "0") or 0) + 1))
 
     def already_captured(self, doc_id: str) -> tuple[str, list[Proposal]] | None:
@@ -185,6 +190,8 @@ class SpecKeeper:
         are read again against the approved requirements, and only what is new or different comes back:
         new decisions as new proposals, edits to approved ones as change proposals."""
         title, text = fetch(doc_id)
+        if len(text) > MAX_NOTES_CHARS:
+            raise NotesTooLong(f"{len(text)} characters")
         digest = fingerprint(text)
         before = self.store.get_meta(f"doc:{doc_id}")
         earlier = self.store.proposals_in_group(before) if before else []
