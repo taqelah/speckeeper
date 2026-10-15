@@ -25,7 +25,6 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 BASELINE = "1.0.0"
-SUGGEST_EVERY = 600  # seconds: at most one thread-watch suggestion per thread in this time
 
 
 def _now() -> str:
@@ -145,8 +144,6 @@ class SpecKeeper:
         state = self.watch_state(channel, thread_ts)
         if not state or state.get("muted"):
             return None
-        if time.time() - state.get("last_suggested", 0) < SUGGEST_EVERY:
-            return None  # not claimed: a later message brings these back once the quiet spell is over
         checked = float(state["checked"])
         new = [m for m in messages if float(m.ts) > checked]
         if not new:
@@ -158,7 +155,8 @@ class SpecKeeper:
         found = triage(earlier, new, self.triage_generate, approved, self.min_confidence)
         if found is None:
             return None
-        key = found.target or _norm(found.summary)
+        # The same change means the same requirement and the same numbers: 10 → 5 MB once, but 10 → 8 MB is new.
+        key = f"{found.target}:{'-'.join(re.findall(r'[0-9]+(?:[.][0-9]+)?', found.summary))}" if found.target else _norm(found.summary)
         waiting = found.target and any(p.status == "pending" and p.thread_ts == thread_ts for p in self.store.proposals_for(found.target))
         if key in state["suggested"] or waiting:
             return None

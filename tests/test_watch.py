@@ -9,7 +9,6 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from speckeeper import service
 from speckeeper.extract import triage
 from speckeeper.main import create_app
 from speckeeper.models import Requirement, Source
@@ -115,12 +114,14 @@ def test_W_06_mute_stops_suggestions_and_unmute_brings_them_back():
     assert "200.1" not in t.prompts[0].split("New messages (ts | who | text):")[1]  # what was said while muted stays unsuggested
 
 
-def test_W_07_the_same_change_is_suggested_once(monkeypatch):
-    monkeypatch.setattr(service, "SUGGEST_EVERY", 0)
-    app, t = watched_app(SAYS_CHANGE, SAYS_CHANGE)
+def test_W_07_the_same_change_is_suggested_once_but_a_different_one_is_new():
+    to_8 = {**SAYS_CHANGE, "summary": "upload limit 25 MB → 8 MB"}
+    app, t = watched_app(SAYS_CHANGE, {**SAYS_CHANGE, "summary": "receipt upload limit 25 MB → 10 MB"}, to_8)
     say(app, CAP)
     say(app, {**CAP, "ts": "201.1", "text": "yes 10 MB, confirmed"})
-    assert len(t.prompts) == 2 and len(suggestions(app)) == 1
+    assert len(t.prompts) == 2 and len(suggestions(app)) == 1  # reworded, same numbers: not again
+    say(app, {**CAP, "ts": "202.1", "text": "actually let's cap at 8 MB"})
+    assert len(suggestions(app)) == 2 and "8 MB" in json.dumps(suggestions(app)[-1]["blocks"])
 
 
 def test_W_08_review_runs_the_normal_capture_and_writes_nothing_before_approval():
