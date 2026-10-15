@@ -21,7 +21,7 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     assert "Nobody told the tests." in body and "Where to look for each criterion" in body and "AC-7-1@v1" in body
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
-    assert http.get("/architecture.png").status_code == 200 and http.get("/icon.png").status_code == 200
+    assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
 
 
 def test_buttons_appear_only_for_links_that_are_set():

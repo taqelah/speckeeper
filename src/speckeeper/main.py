@@ -98,6 +98,10 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     async def architecture():
         return FileResponse(WEB / "architecture.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
+    @api.get("/change-sequence.png")
+    async def change_sequence():
+        return FileResponse(WEB / "change-sequence.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
     @api.get("/icon.png")
     async def icon():
         return FileResponse(WEB / "icon.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})

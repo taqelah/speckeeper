@@ -51,39 +51,10 @@
   .stale { color: var(--warn); font-weight: 600; }
   .pass { color: var(--ok); font-weight: 600; }
   img.arch { width: 100%; height: auto; border-radius: 8px; background: #fff; }
-  /* Architecture diagram: inputs → service → outputs, platform underneath; one column on phones. */
-  .arch-d { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1.75fr) 44px minmax(0, 1fr); align-items: center; gap: 0; }
-  .arch-col { display: flex; flex-direction: column; gap: 12px; }
-  .arch-col .lbl, .svc .lbl, .plat .lbl { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: var(--dim); }
-  .node { border: 1px solid var(--box); border-radius: 8px; padding: 14px 16px; background: #0f1c40; }
-  .node strong { display: block; font-size: 16px; }
-  .node span { display: block; font-size: 14px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
-  .node.in { border-color: #3a4b78; }
-  .node.out { border-color: #2f6b55; background: #0d2230; }
-  .flow { display: flex; justify-content: center; color: var(--accent); }
-  .flow svg { width: 32px; height: 32px; }
-  .svc { border: 1.5px solid var(--accent); border-radius: 12px; padding: 16px; background: #10214d; display: flex; flex-direction: column; gap: 12px; }
-  .svc-head strong { font-family: 'Space Grotesk', sans-serif; font-size: 19px; color: var(--accent); }
-  .svc-head span { display: block; font-size: 13px; color: var(--dim); }
-  .mods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .mod { border: 1px solid var(--box); border-radius: 8px; padding: 12px 14px; background: #0b1838; }
-  .mod .n { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent); }
-  .mod strong { display: block; font-size: 15px; margin-top: 2px; }
-  .mod span { display: block; font-size: 13.5px; color: var(--muted); line-height: 1.45; margin-top: 4px; }
-  .mod.wide { grid-column: 1 / -1; }
-  .guard { border: 1px dashed #3a4b78; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
-  .guard b { color: var(--text); font-weight: 600; }
-  .plat-wrap { grid-column: 3; display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 6px; }
-  .plat { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-  .node.p { border-color: #6b5a2c; background: #1c1d2a; }
-  .node.p strong { font-size: 15px; }
-  @media (max-width: 900px) {
-    .arch-d { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-    .flow svg { transform: rotate(90deg); }
-    .plat-wrap { grid-column: 1; }
-    .plat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 520px) { .mods { grid-template-columns: minmax(0, 1fr); } }
+  figure.diagram { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  figure.diagram a { display: block; }
+  figure.diagram img { width: 100%; height: auto; border-radius: 8px; background: #f7f8fa; display: block; }
+  figure.diagram figcaption { font-size: 15px; color: var(--dim); }
   ul.limits { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: var(--muted); }
   @media (max-width: 640px) {
     .table.script table, .table.script tbody, .table.script tr, .table.script td { display: block; min-width: 0; }
@@ -176,45 +147,9 @@
 
   <section class="wrap block" id="how" aria-labelledby="how-h">
     <h2 id="how-h">How it works</h2>
-    <figure style="margin: 0" aria-labelledby="arch-cap">
-      <figcaption id="arch-cap" class="lead" style="font-size: 17px; margin-bottom: 18px">Three inputs, one Cloud Run service, three outputs. Gemini proposes; nothing is written until a person approves.</figcaption>
-      <div class="arch-d">
-        <div class="arch-col">
-          <span class="lbl">INPUTS</span>
-          <div class="node in"><strong>Slack</strong><span>#proj-checkout: mentions, thread replies, button clicks. Every request signature-checked.</span></div>
-          <div class="node in"><strong>Meeting notes</strong><span>A private Google Doc, read through the Drive API as the service account.</span></div>
-          <div class="node in"><strong>GitHub Actions CI</strong><span>Playwright tests named after criteria (AC-7-1@v1). JUnit XML to /ci with a secret.</span></div>
-        </div>
-        <div class="flow" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16h20M18 9l7 7-7 7"></path></svg></div>
-        <div class="svc">
-          <div class="svc-head"><strong>Cloud Run · speckeeper</strong><span>Python · FastAPI · Slack Bolt · asia-southeast1</span></div>
-          <div class="mods">
-            <div class="mod"><span class="n">1</span><strong>Capture</strong><span>Gemini 3.1 Pro turns a thread or notes into requirements with Given/When/Then criteria. Uncited items are dropped.</span></div>
-            <div class="mod"><span class="n">2</span><strong>Thread watch</strong><span>After 15 s of quiet, Gemini 3.8 Flash checks new messages and suggests a change only when sure.</span></div>
-            <div class="mod"><span class="n">3</span><strong>Approval gate</strong><span>Approve all, one by one, or dismiss. Assigns REQ and AC keys, versions each requirement and the PRD.</span></div>
-            <div class="mod"><span class="n">4</span><strong>CI verification</strong><span>Maps each test to its criterion by key: passing, failing, or stale when the test is for an older version.</span></div>
-            <div class="mod wide"><span class="n">5</span><strong>“Why?” agent</strong><span>A Google ADK agent answers from requirements, criteria, CI status and history, with read-only tools and linked sources.</span></div>
-          </div>
-          <div class="guard"><b>Guardrails:</b> rules in Gemini's system instruction, messages fenced as data · output escaped · approver list · per-user limits and a daily token budget · audit logs</div>
-        </div>
-        <div class="flow" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16h20M18 9l7 7-7 7"></path></svg></div>
-        <div class="arch-col">
-          <span class="lbl">OUTPUTS</span>
-          <div class="node out"><strong>PRD in Google Docs</strong><span>Rebuilt on every approval and CI run: summary, criteria tables, change history.</span></div>
-          <div class="node out"><strong>GitHub issues</strong><span>One per requirement with keyed criteria; CI results as comments.</span></div>
-          <div class="node out"><strong>Slack replies</strong><span>Approval and change cards, suggestions, CI status, answers with sources.</span></div>
-        </div>
-        <div class="plat-wrap">
-          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="#a9b6d3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 5v20M9 18l7 7 7-7"></path></svg>
-          <span class="lbl" style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: var(--dim)">GOOGLE CLOUD SERVICES IT USES</span>
-          <div class="plat" role="list" aria-label="Google Cloud services the service uses">
-            <div class="node p" role="listitem"><strong>Vertex AI</strong><span>Gemini Pro and Flash, each falling back to the other</span></div>
-            <div class="node p" role="listitem"><strong>Firestore</strong><span>Requirements, proposals, versions, releases</span></div>
-            <div class="node p" role="listitem"><strong>Secret Manager</strong><span>Slack, GitHub and CI secrets</span></div>
-            <div class="node p" role="listitem"><strong>Cloud Logging</strong><span>Audit events and alerts</span></div>
-          </div>
-        </div>
-      </div>
+    <figure class="diagram">
+      <a href="/architecture.png"><img src="/architecture.png" width="1488" height="1080" alt="Cloud deployment. Slack, the meeting notes in Google Docs, GitHub Actions and a browser feed one Cloud Run service in a Google Cloud project. Inside it: capture with Gemini 3.1 Pro, thread watch with Gemini 3.8 Flash, the approval gate, CI verification, the ADK question agent and the PRD builder, behind guardrails. It uses Vertex AI, Firestore, Secret Manager and Cloud Logging, and writes the PRD in Google Docs and GitHub issues."></a>
+      <figcaption>Cloud deployment. Open the image for full size. <a href="/change-sequence.png" style="display: inline">See how one change travels through it, step by step</a>.</figcaption>
     </figure>
     <div class="grid">
       <div class="card"><strong>Nothing changes on its own</strong><p>Gemini only proposes. The PRD and issues change when a person clicks Approve, and every requirement cites where it was agreed.</p></div>

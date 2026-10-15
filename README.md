@@ -30,6 +30,12 @@ Vertex AI and the Agent Development Kit.
 
 ## How it works
 
+![Spec Keeper cloud deployment](docs/architecture.png)
+
+How one change travels through it, from a Slack message to a stale test:
+
+![How a change travels](docs/change-sequence.png)
+
 ```mermaid
 flowchart LR
     subgraph Inputs
