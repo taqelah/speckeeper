@@ -150,8 +150,9 @@ def triage(context: list[Source], new: list[Source], generate: Generate, approve
     return Suggestion(verdict, target if verdict == "change" else "", raw.summary.strip()[:120], raw.confidence, sources)
 
 
-def gemini_generate(project: str, location: str, model: str, fallback: str = "") -> Generate:
-    """Gemini on Vertex AI with a response schema, so the reply is JSON of that shape."""
+def gemini_generate(project: str, location: str, model: str, fallback: str = "", thinking: str = "") -> Generate:
+    """Gemini on Vertex AI with a response schema, so the reply is JSON of that shape. `thinking` ("low",
+    "minimal") caps how long the model reasons first: a yes/no triage doesn't need the default."""
     from google import genai
     from google.genai import types
 
@@ -160,7 +161,10 @@ def gemini_generate(project: str, location: str, model: str, fallback: str = "")
     def generate(prompt: str, schema: type[BaseModel]) -> dict:
         if not clients:
             clients.append(genai.Client(vertexai=True, project=project, location=location))
-        config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json", response_schema=schema, temperature=0.1,
+            thinking_config=types.ThinkingConfig(thinking_level=thinking.upper()) if thinking else None,
+        )
         try:
             res = clients[0].models.generate_content(model=model, contents=prompt, config=config)
         except Exception as e:

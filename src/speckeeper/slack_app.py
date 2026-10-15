@@ -48,7 +48,7 @@ HELP = (
 
 def build_slack_app(
     token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False,
-    quiet: float = 30,
+    quiet: float = 15,
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
     before the HTTP response so the test can check what was posted (thread watch then checks at once).

@@ -47,7 +47,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
     return SpecKeeper(
         store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues,
         Asker(store, s.flash_model, fallback=s.pro_model),
-        triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model),
+        triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
         min_confidence=s.watch_min_confidence,
     )
 
