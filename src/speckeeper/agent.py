@@ -24,7 +24,7 @@ from .store import Store
 
 TZ = ZoneInfo("Asia/Singapore")
 
-INSTRUCTION = """You are Threadline, the requirements agent in a product team's Slack channel.
+INSTRUCTION = """You are SpecKeeper, the requirements agent in a product team's Slack channel.
 You answer questions about the team's requirements: what was agreed, why, when, by whom, what changed,
 and whether CI has verified it.
 
@@ -54,7 +54,7 @@ def _summary(r: Requirement) -> dict:
 
 
 def build_tools(store: Store) -> list:
-    """The agent's tools, reading Threadline's own store. Plain functions: ADK reads their names,
+    """The agent's tools, reading Spec Keeper's own store. Plain functions: ADK reads their names,
     docstrings and type hints to tell Gemini what each one does."""
 
     def list_requirements() -> list[dict]:
@@ -97,7 +97,7 @@ def build_tools(store: Store) -> list:
 
 def build_agent(store: Store, model: str) -> Agent:
     return Agent(
-        name="threadline",
+        name="speckeeper",
         description="Answers questions about the team's requirements, their history and CI status, with sources.",
         model=model,
         instruction=INSTRUCTION,
@@ -124,10 +124,10 @@ class Asker:
     with preview models' small quotas) the question is asked once more on the fallback model."""
 
     def __init__(self, store: Store, model: str, fallback: str = "") -> None:
-        self.runners = [InMemoryRunner(agent=build_agent(store, m), app_name="threadline") for m in dict.fromkeys([model, fallback or model])]
+        self.runners = [InMemoryRunner(agent=build_agent(store, m), app_name="speckeeper") for m in dict.fromkeys([model, fallback or model])]
 
     async def _run(self, runner: InMemoryRunner, question: str, user: str) -> str:
-        session = await runner.session_service.create_session(app_name="threadline", user_id=user, session_id=uuid.uuid4().hex)
+        session = await runner.session_service.create_session(app_name="speckeeper", user_id=user, session_id=uuid.uuid4().hex)
         message = types.Content(role="user", parts=[types.Part(text=question)])
         answer = ""
         async for event in runner.run_async(user_id=user, session_id=session.id, new_message=message):

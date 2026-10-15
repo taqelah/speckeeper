@@ -6,4 +6,4 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 ENV PORT=8080
-CMD ["sh", "-c", "uv run --no-dev uvicorn --factory threadline.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uv run --no-dev uvicorn --factory speckeeper.main:app --host 0.0.0.0 --port ${PORT}"]

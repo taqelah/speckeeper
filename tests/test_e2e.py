@@ -17,10 +17,10 @@ import pytest
 from fastapi.testclient import TestClient
 from slack_sdk.web.async_client import AsyncWebClient
 
-from threadline.config import Settings
-from threadline.main import create_app
-from threadline.service import Threadline
-from threadline.store import MemoryStore
+from speckeeper.config import Settings
+from speckeeper.main import create_app
+from speckeeper.service import SpecKeeper
+from speckeeper.store import MemoryStore
 from test_meeting import DOC, NOTES, FakeIssues, FakePRD
 
 SECRET = "signing-secret"
@@ -30,7 +30,7 @@ LINK = f"<https://docs.google.com/document/d/{DOC}/edit?usp=sharing|kickoff note
 
 class FakeSlack:
     """A local HTTP server that answers Slack's Web API like Slack would and records every call.
-    Threadline talks to it over real HTTP, exactly as it talks to slack.com."""
+    Spec Keeper talks to it over real HTTP, exactly as it talks to slack.com."""
 
     def __init__(self, thread=None):
         self.calls: list[tuple[str, dict]] = []
@@ -74,7 +74,7 @@ class FakeSlack:
         self._ts += 1
         body = {"ok": True}
         if method == "auth.test":
-            body.update(user_id="UBOT", bot_id="BBOT", team_id="T1", user="threadline")
+            body.update(user_id="UBOT", bot_id="BBOT", team_id="T1", user="speckeeper")
         elif method == "chat.postMessage":
             body.update(ts=f"{self._ts}.0", channel=args.get("channel"))
         elif method == "conversations.replies":
@@ -160,7 +160,7 @@ class App:
     def __init__(self, gemini=None, asker=None, fetch=fetch_ok, thread=None):
         self.prd, self.issues = FakePRD(), FakeIssues()
         self.issues_created = self.issues.created
-        self.svc = Threadline(MemoryStore(first_req=7), gemini or Gemini(KICKOFF), self.prd, self.issues, asker)
+        self.svc = SpecKeeper(MemoryStore(first_req=7), gemini or Gemini(KICKOFF), self.prd, self.issues, asker)
         self.slack = FakeSlack(thread)
         self.http = TestClient(create_app(settings(), self.svc, slack_client=self.slack.client(), fetch_doc=fetch, wait=True))
         self._event = 0
@@ -203,7 +203,7 @@ class App:
         raise AssertionError(f"no {action_id} button on the card")
 
     def ci(self, xml: str, secret: str | None = CI):
-        headers = {"X-Threadline-Secret": secret} if secret is not None else {}
+        headers = {"X-SpecKeeper-Secret": secret} if secret is not None else {}
         return self.http.post("/ci", json={"run_id": "#1", "channel": "C1", "junit_xml": xml}, headers=headers)
 
 
@@ -374,7 +374,7 @@ def test_N_08_a_click_on_a_card_from_before_a_restart_says_so():
     app = App()
     card = {"ts": "5.5", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "From *Old notes* I captured 2"}}]}
     app.click("approve_group", "g-unknown", card)
-    assert "before Threadline restarted" in app.slack.posted("chat.update")[-1]["text"]
+    assert "before Spec Keeper restarted" in app.slack.posted("chat.update")[-1]["text"]
     assert app.issues_created == []
 
 

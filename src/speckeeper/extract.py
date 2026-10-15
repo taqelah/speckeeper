@@ -104,11 +104,11 @@ def gemini_generate(project: str, location: str, model: str, fallback: str = "")
             # Preview models have small quotas: on a rate limit, ask the fallback model once.
             if not fallback or not (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)):
                 raise
-            logging.getLogger("threadline").warning("%s rate limited; using %s", model, fallback)
+            logging.getLogger("speckeeper").warning("%s rate limited; using %s", model, fallback)
             res = clients[0].models.generate_content(model=fallback, contents=prompt, config=config)
         u = res.usage_metadata
         if u:  # tokens are what Gemini bills for; logged per call for the cost slide and the evals
-            logging.getLogger("threadline.usage").info(
+            logging.getLogger("speckeeper.usage").info(
                 "model=%s input=%s output=%s thinking=%s", model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
             )
             generate.last_usage = {"input": u.prompt_token_count or 0, "output": u.candidates_token_count or 0, "thinking": u.thoughts_token_count or 0}

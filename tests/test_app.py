@@ -2,10 +2,10 @@
 
 from fastapi.testclient import TestClient
 
-from threadline.config import Settings
-from threadline.main import create_app
-from threadline.service import Threadline
-from threadline.store import MemoryStore
+from speckeeper.config import Settings
+from speckeeper.main import create_app
+from speckeeper.service import SpecKeeper
+from speckeeper.store import MemoryStore
 
 
 def settings(**kw):
@@ -15,7 +15,7 @@ def settings(**kw):
 
 
 def client():
-    svc = Threadline(MemoryStore(), lambda prompt, schema: {"requirements": []})
+    svc = SpecKeeper(MemoryStore(), lambda prompt, schema: {"requirements": []})
     return TestClient(create_app(settings(), svc))
 
 
@@ -24,12 +24,12 @@ def test_health():
 
 
 def test_ci_rejects_a_wrong_secret():
-    res = client().post("/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites/>"}, headers={"X-Threadline-Secret": "nope"})
+    res = client().post("/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites/>"}, headers={"X-SpecKeeper-Secret": "nope"})
     assert res.status_code == 401
 
 
 def test_ci_with_no_matching_requirements_posts_nothing():
-    res = client().post("/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites><testcase name='x'/></testsuites>"}, headers={"X-Threadline-Secret": "s3cret"})
+    res = client().post("/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites><testcase name='x'/></testsuites>"}, headers={"X-SpecKeeper-Secret": "s3cret"})
     assert res.json() == {"requirements": [], "unmapped": ["x"]}
 
 

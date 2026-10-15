@@ -12,7 +12,7 @@ from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
 from .config import Settings
 from .extract import Generate, gemini_generate
-from .service import Threadline
+from .service import SpecKeeper
 from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
 
@@ -25,7 +25,7 @@ class CiRun(BaseModel):
     junit_xml: str
 
 
-def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
+def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
     if s.store == "firestore":
         store = FirestoreStore(s.gcp_project, s.first_req)
     elif s.store == "file":
@@ -44,7 +44,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> Threadline:
     from .agent import Asker, use_vertex
 
     use_vertex(s.gcp_project, s.gemini_location)
-    return Threadline(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues, Asker(store, s.flash_model, fallback=s.pro_model))
+    return SpecKeeper(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues, Asker(store, s.flash_model, fallback=s.pro_model))
 
 
 def lazy_drive_fetch():
@@ -59,18 +59,18 @@ def lazy_drive_fetch():
                 made.append(drive_fetch())
             return made[0](doc_id)
         except Exception:
-            logging.getLogger("threadline").info("Drive read failed for %s; trying the doc's public link", doc_id)
+            logging.getLogger("speckeeper").info("Drive read failed for %s; trying the doc's public link", doc_id)
             return public_fetch(doc_id)
 
     return fetch
 
 
-def create_app(s: Settings | None = None, svc: Threadline | None = None, slack_client=None, fetch_doc=None, wait: bool = False) -> FastAPI:
+def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_client=None, fetch_doc=None, wait: bool = False) -> FastAPI:
     s = s or Settings.from_env()
     svc = svc or build_service(s)
     slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait)
     handler = AsyncSlackRequestHandler(slack)
-    api = FastAPI(title="Threadline", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
+    api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
     @api.get("/health")
     @api.get("/healthz")  # Cloud Run's front end reserves /healthz, so on Cloud Run use /health
@@ -82,8 +82,8 @@ def create_app(s: Settings | None = None, svc: Threadline | None = None, slack_c
         return await handler.handle(req)
 
     @api.post("/ci")
-    async def ci_webhook(run: CiRun, x_threadline_secret: str = Header(default="")):
-        if not s.ci_secret or not hmac.compare_digest(x_threadline_secret, s.ci_secret):
+    async def ci_webhook(run: CiRun, x_speckeeper_secret: str = Header(default="")):
+        if not s.ci_secret or not hmac.compare_digest(x_speckeeper_secret, s.ci_secret):
             raise HTTPException(status_code=401, detail="bad secret")
         try:
             changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
@@ -96,5 +96,5 @@ def create_app(s: Settings | None = None, svc: Threadline | None = None, slack_c
     return api
 
 
-def app() -> FastAPI:  # uvicorn --factory threadline.main:app
+def app() -> FastAPI:  # uvicorn --factory speckeeper.main:app
     return create_app()

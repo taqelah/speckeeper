@@ -37,6 +37,6 @@ class Settings:
             github_token=env("GITHUB_TOKEN", ""),
             github_repo=env("GITHUB_REPO", ""),
             ci_secret=env("CI_SECRET", ""),
-            store=env("THREADLINE_STORE", "memory"),
+            store=env("SPECKEEPER_STORE", "memory"),
             first_req=int(env("FIRST_REQ", "1")),
         )

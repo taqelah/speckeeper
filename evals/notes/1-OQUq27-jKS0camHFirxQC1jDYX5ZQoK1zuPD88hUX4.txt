@@ -15,7 +15,7 @@ Details
 * Saved cards: Maya confirmed that a user with a saved card pays in one step: tapping Pay places the order with no extra screen. (00:24:10)
 * Guest checkout: Arjun asked whether guest checkout is in scope. Priya said Payments cannot issue guest tokens by launch. The team agreed to move guest checkout to v2.1. (00:27:40)
 * Image compression: Wei suggested compressing photos on the phone before upload to save storage. No decision; Arjun worried about receipt text becoming unreadable. (00:33:15)
-* Requirements and tickets: Maya will keep the PRD and the GitHub issues current from the #proj-checkout channel, with Threadline capturing decisions from threads for her approval. (00:38:50)
+* Requirements and tickets: Maya will keep the PRD and the GitHub issues current from the #proj-checkout channel, with Spec Keeper capturing decisions from threads for her approval. (00:38:50)
 
 Decisions
 * Receipt uploads are limited to 25 MB; larger files show "File exceeds 25 MB".
@@ -36,4 +36,4 @@ Next steps
 * Priya Nair: ask Compliance for the audit log retention period by Oct 16.
 * Wei Tan and Arjun Rao: test receipt readability with compressed photos and bring a recommendation to the next sync.
 
-Sample meeting notes for the Threadline demo. Acme Shop and everyone named here are fictional.
+Sample meeting notes for the Spec Keeper demo. Acme Shop and everyone named here are fictional.

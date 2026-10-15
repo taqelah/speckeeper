@@ -1,13 +1,13 @@
-"""The ADK agent's tools read Threadline's own store; no Gemini call here."""
+"""The ADK agent's tools read Spec Keeper's own store; no Gemini call here."""
 
-from threadline.agent import build_agent, build_tools
-from threadline.service import Threadline
-from threadline.store import MemoryStore
+from speckeeper.agent import build_agent, build_tools
+from speckeeper.service import SpecKeeper
+from speckeeper.store import MemoryStore
 from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
 
 
 def test_tools_answer_from_the_store_including_change_history():
-    from threadline.models import Source
+    from speckeeper.models import Source
 
     calls = []
 
@@ -17,7 +17,7 @@ def test_tools_answer_from_the_store_including_change_history():
             return generate(prompt, schema)
         return {"requirements": [{"title": "Receipt uploads are limited to 10 MB", "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "rejected"}], "source_ts": ["2.1"], "changes": "REQ-7"}], "open_questions": []}
 
-    svc = Threadline(MemoryStore(first_req=7), gen, FakePRD(), FakeIssues())
+    svc = SpecKeeper(MemoryStore(first_req=7), gen, FakePRD(), FakeIssues())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "UMAYA")
     (p,), _ = svc.capture("C1", "2.1", [Source(ts="2.1", user="UWEI", text="Storage bill doubled. Cap uploads at 10 MB.", label="Wei, Oct 15 16:02", permalink="https://slack/p1")])
@@ -37,14 +37,14 @@ def test_tools_answer_from_the_store_including_change_history():
 
 def test_agent_is_built_with_the_three_tools():
     agent = build_agent(MemoryStore(), "gemini-3.1-pro-preview")
-    assert agent.name == "threadline"
+    assert agent.name == "speckeeper"
     assert sorted(t.__name__ for t in agent.tools) == ["get_history", "get_requirement", "list_requirements"]
 
 
 def test_a_rate_limited_question_is_asked_again_on_the_fallback_model():
     import asyncio
 
-    from threadline.agent import Asker
+    from speckeeper.agent import Asker
 
     asker = Asker(MemoryStore(), "gemini-3.8-flash", fallback="gemini-3.1-pro-preview")
     used = []
@@ -64,8 +64,8 @@ def test_a_rate_limited_question_is_asked_again_on_the_fallback_model():
 
 
 def test_history_puts_creation_before_a_change_with_the_same_timestamp():
-    from threadline.models import Proposal, Requirement
-    from threadline.store import _history_order
+    from speckeeper.models import Proposal, Requirement
+    from speckeeper.store import _history_order
 
     created = Proposal(id="a", kind="new", requirement=Requirement(key="REQ-7", title="25 MB"), channel="C", thread_ts="1", decided_at="2026-10-15T03:40:00.000+00:00")
     changed = Proposal(id="b", kind="change", target="REQ-7", requirement=Requirement(key="REQ-7", title="10 MB", version=2), channel="C", thread_ts="2", decided_at="2026-10-15T03:40:00.000+00:00")

@@ -1,11 +1,11 @@
 # AGENTS.md
 
-How to work on **Threadline**. The user-facing overview is [README.md](README.md); this file is for
+How to work on **Spec Keeper**. The user-facing overview is [README.md](README.md); this file is for
 changing the code, whether you are a person or a coding agent.
 
 ## What this is
 
-Threadline is a Slack agent that makes sure what a team agreed on is what actually shipped. It
+Spec Keeper is a Slack agent that makes sure what a team agreed on is what actually shipped. It
 captures requirements from meeting notes and Slack threads (each cited to where it was agreed),
 gets a person to approve them, writes them to the PRD and GitHub issues with keyed acceptance
 criteria (AC-7-1), checks CI results per criterion, and catches later messages that change an
@@ -27,7 +27,7 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
    Use the fakes (see Testing).
 5. **Secrets stay out of git.** `.env` and `.data/` are ignored; keep them that way. Never print a
    token or secret in logs, tests or commit messages.
-6. **Every Slack request is verified** (signing secret) and `/ci` needs `X-Threadline-Secret`. Don't
+6. **Every Slack request is verified** (signing secret) and `/ci` needs `X-SpecKeeper-Secret`. Don't
    add endpoints without the same protection. The API listing (`/docs`) stays off.
 7. **Commits:** plain messages describing the change. No tool attribution lines (`Co-Authored-By`,
    "Generated with …").
@@ -38,10 +38,10 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
 uv sync                                   # install (Python 3.12, managed by uv)
 uv run pytest                             # all tests, ~1 s, no network
 uv run pytest tests/test_e2e.py -k N_0    # a subset
-uv run --env-file .env uvicorn --factory threadline.main:app --port 8080 --reload --reload-exclude ".data/*"
+uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080 --reload --reload-exclude ".data/*"
 cloudflared tunnel --url http://localhost:8080        # public URL for Slack and GitHub while local
 uv run --env-file .env adk web agents                 # ADK web UI for the question agent
-uv run --env-file .env python -m threadline.backfill  # issues for requirements approved before GitHub was set up (server stopped)
+uv run --env-file .env python -m speckeeper.backfill  # issues for requirements approved before GitHub was set up (server stopped)
 GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 ```
 
@@ -49,19 +49,19 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 
 | Path | Role |
 |---|---|
-| `src/threadline/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
-| `src/threadline/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
-| `src/threadline/service.py` | What Threadline does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
-| `src/threadline/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |
-| `src/threadline/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback |
-| `src/threadline/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
-| `src/threadline/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
-| `src/threadline/cards.py` | Block Kit: approval, baseline, change and decided cards |
-| `src/threadline/integrations.py` | Google Docs PRD (append only) and GitHub issues |
-| `src/threadline/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
-| `src/threadline/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
-| `src/threadline/config.py` | Settings from the environment |
-| `agents/threadline_qa/` | Entry point for `adk web` |
+| `src/speckeeper/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
+| `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
+| `src/speckeeper/service.py` | What Spec Keeper does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
+| `src/speckeeper/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |
+| `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback |
+| `src/speckeeper/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
+| `src/speckeeper/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
+| `src/speckeeper/cards.py` | Block Kit: approval, baseline, change and decided cards |
+| `src/speckeeper/integrations.py` | Google Docs PRD (append only) and GitHub issues |
+| `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
+| `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
+| `src/speckeeper/config.py` | Settings from the environment |
+| `agents/speckeeper_qa/` | Entry point for `adk web` |
 | `evals/notes/` | Meeting notes fixtures |
 
 ## Data model
@@ -80,9 +80,9 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 
 ## Main flows
 
-1. **Meeting:** `@Threadline capture <notes link>` → read the doc → extract → one baseline card →
+1. **Meeting:** `@Spec Keeper capture <notes link>` → read the doc → extract → one baseline card →
    Approve all (or one by one) → REQ keys, issues, PRD sections, PRD v1.0.0.
-2. **Thread:** `@Threadline capture this` → read the thread with names and permalinks → extract
+2. **Thread:** `@Spec Keeper capture this` → read the thread with names and permalinks → extract
    with the approved requirements in the prompt → approval card for new items, change card for
    changes → Approve → new requirement, or the next version of the existing one.
 3. **CI:** GitHub Actions posts JUnit to `/ci` → each test maps to an AC by the key at the start of
@@ -113,7 +113,7 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 `.env` (see `.env.example`): `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `GCP_PROJECT`,
 `GCP_LOCATION` (asia-southeast1, for Cloud Run and Firestore), `GEMINI_LOCATION` (global),
 `GEMINI_PRO_MODEL`, `GEMINI_FLASH_MODEL`, `PRD_DOC_ID`, `GITHUB_TOKEN`, `GITHUB_REPO`, `CI_SECRET`,
-`THREADLINE_STORE` (`memory`, `file`, `firestore`), `FIRST_REQ` (7 for the demo).
+`SPECKEEPER_STORE` (`memory`, `file`, `firestore`), `FIRST_REQ` (7 for the demo).
 
 ## Things that bit us
 
@@ -122,11 +122,11 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 - **Preview model quotas are small.** `gemini-3.1-pro-preview` returns 429 under light load; capture
   and questions retry once on the other model. Raise the quota before the demo.
 - **Google blocks the gcloud login from asking for Docs or Drive scopes.** Read and write Google docs
-  as the `threadline` service account (impersonation locally, the service's identity on Cloud Run).
+  as the `speckeeper` service account (impersonation locally, the service's identity on Cloud Run).
 - **Slack private channels** need `groups:history`, `groups:read` and the `message.groups` event,
   besides the public-channel scopes.
 - **The quick tunnel's URL changes on every restart**; update both Slack Request URLs and the
-  `THREADLINE_URL` secret in checkout-app. Cloud Run removes this.
+  `SPECKEEPER_URL` secret in checkout-app. Cloud Run removes this.
 - **Loading `.env` into a shell sets `GITHUB_TOKEN`, which `gh` then uses** instead of your login.
   Run `gh` with `env -u GITHUB_TOKEN`.
 - **The server keeps its own copy of the file store**; stop it before scripts that write to

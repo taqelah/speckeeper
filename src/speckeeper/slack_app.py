@@ -15,22 +15,22 @@ from slack_bolt.async_app import AsyncApp
 from .cards import APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, REVIEW_EACH, approval_card, baseline_card, change_card, decided_card, decided_group_card
 from .models import Source
 from .notes import FetchDoc, doc_id_in
-from .service import Threadline
+from .service import SpecKeeper
 
-log = logging.getLogger("threadline")
+log = logging.getLogger("speckeeper")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
 
 TZ = "Asia/Singapore"  # how message times are written in citations
 
 HELP = (
-    "Mention me in a thread: `@Threadline capture this` to turn what was agreed into a requirement for approval, "
-    "`@Threadline capture <link to meeting notes>` to capture everything a meeting agreed, "
-    "or ask me anything about the requirements: `@Threadline why is the upload limit 10 MB?`"
+    "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
+    "`@Spec Keeper capture <link to meeting notes>` to capture everything a meeting agreed, "
+    "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?`"
 )
 
 
 def build_slack_app(
-    token: str, signing_secret: str, svc: Threadline, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False
+    token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
     before the HTTP response so the test can check what was posted."""
@@ -119,7 +119,7 @@ def build_slack_app(
         except Exception:
             log.exception("meeting capture failed")
             await client.chat_update(
-                channel=channel, ts=working["ts"], text="I couldn't open those notes. Share the doc with Threadline's service account (Viewer) and try again."
+                channel=channel, ts=working["ts"], text="I couldn't open those notes. Share the doc with Spec Keeper's service account (Viewer) and try again."
             )
             return
         if not proposals:
@@ -129,7 +129,7 @@ def build_slack_app(
             channel=channel, ts=working["ts"], text=f"Captured {len(proposals)} requirements from {title}", blocks=baseline_card(group_id, title, proposals, questions)
         )
 
-    STALE = "This card is from before Threadline restarted, so its requirements are gone. Capture the notes again."
+    STALE = "This card is from before Spec Keeper restarted, so its requirements are gone. Capture the notes again."
 
     async def stale(client, body) -> None:
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}])

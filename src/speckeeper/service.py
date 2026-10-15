@@ -1,4 +1,4 @@
-"""What Threadline does, independent of Slack: capture, approve, dismiss, take CI results.
+"""What Spec Keeper does, independent of Slack: capture, approve, dismiss, take CI results.
 
 Slack handlers (slack_app.py) and the /ci endpoint (main.py) are thin layers over this, so the
 whole loop can be tested with fakes.
@@ -55,7 +55,7 @@ def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[
     return changed, stale
 
 
-class Threadline:
+class SpecKeeper:
     def __init__(self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None, asker=None) -> None:
         self.store = store
         self.generate = generate

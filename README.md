@@ -1,4 +1,4 @@
-# Threadline
+# Spec Keeper
 
 **The Slack agent that makes sure what your team agreed on is what actually shipped.**
 
@@ -7,7 +7,7 @@ meetings and Slack threads, but the PRD, the acceptance criteria and the tickets
 hand, late or never, and a green CI run proves the tests pass, not that the agreed requirement
 shipped.
 
-Threadline closes that loop. It captures requirements where they are agreed, cites where each one
+Spec Keeper closes that loop. It captures requirements where they are agreed, cites where each one
 came from, gets a person to approve them, keeps the PRD and GitHub issues in sync, and checks every
 acceptance criterion against CI. When a later message changes an approved requirement, it catches
 the change and flags the tests that still pass against the old text.
@@ -17,14 +17,14 @@ Vertex AI and the Agent Development Kit.
 
 ## What it does
 
-| Step | In Slack | What Threadline does |
+| Step | In Slack | What Spec Keeper does |
 |---|---|---|
-| **1. Capture a meeting** | `@Threadline capture <link to the meeting notes>` | Reads the notes, extracts every agreed requirement with Gherkin acceptance criteria, cites the meeting time of each (`Checkout v2 kickoff, 00:06:45`), and keeps open questions out |
+| **1. Capture a meeting** | `@Spec Keeper capture <link to the meeting notes>` | Reads the notes, extracts every agreed requirement with Gherkin acceptance criteria, cites the meeting time of each (`Checkout v2 kickoff, 00:06:45`), and keeps open questions out |
 | **2. Approve** | **Approve all as v1.0.0**, or review one by one | Gives each requirement a key (`REQ-7`) and keyed criteria (`AC-7-1`), opens a GitHub issue for each, and records the PRD baseline v1.0.0. Nothing is written before a person clicks |
-| **3. Verify in CI** | (automatic) | Tests named after a criterion (`AC-7-1@v1 shows the 25 MB limit`) report from GitHub Actions; Threadline posts each criterion as passing or failing, and the requirement as verified only when all pass |
-| **4. Catch a change** | `@Threadline capture this` on a thread like "let's cap uploads at 10 MB" | Recognises that this changes REQ-7, shows the old and new criteria as a diff with both sources, and warns which tests are now **stale**. Approve makes REQ-7 v2 (PRD v1.1.0), never a second, contradicting requirement |
-| **5. Stale, not green** | (automatic) | The next CI run still passes the old 25 MB test, and Threadline reports it as stale, not verified, until the test is updated to `@v2` |
-| **6. Ask why** | `@Threadline why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation |
+| **3. Verify in CI** | (automatic) | Tests named after a criterion (`AC-7-1@v1 shows the 25 MB limit`) report from GitHub Actions; Spec Keeper posts each criterion as passing or failing, and the requirement as verified only when all pass |
+| **4. Catch a change** | `@Spec Keeper capture this` on a thread like "let's cap uploads at 10 MB" | Recognises that this changes REQ-7, shows the old and new criteria as a diff with both sources, and warns which tests are now **stale**. Approve makes REQ-7 v2 (PRD v1.1.0), never a second, contradicting requirement |
+| **5. Stale, not green** | (automatic) | The next CI run still passes the old 25 MB test, and Spec Keeper reports it as stale, not verified, until the test is updated to `@v2` |
+| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation |
 
 ## How it works
 
@@ -35,7 +35,7 @@ flowchart LR
         M[Meeting notes<br/>Google Docs]
         A[GitHub Actions<br/>JUnit results]
     end
-    subgraph Threadline [Threadline service]
+    subgraph Spec Keeper [Spec Keeper service]
         E[Capture<br/>Gemini, schema output,<br/>citations checked]
         G[Approval cards<br/>in Slack]
         Q[ADK agent<br/>questions with tools]
@@ -88,9 +88,9 @@ This is a hackathon prototype.
 | Change detection: REQ-7 v1 to v2 with a diff | |
 | ADK question agent with sources | |
 
-The demo product Threadline watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
+The demo product Spec Keeper watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
 a receipt upload page whose Playwright tests are named after REQ-7's criteria, with a GitHub Actions
-workflow that posts results to Threadline.
+workflow that posts results to Spec Keeper.
 
 ## Run it
 
@@ -101,7 +101,7 @@ project with Vertex AI enabled.
 uv sync
 cp .env.example .env    # Slack token and signing secret, GCP project, GitHub token and repo, CI secret
 gcloud auth application-default login
-uv run --env-file .env uvicorn --factory threadline.main:app --port 8080
+uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080
 cloudflared tunnel --url http://localhost:8080    # a public URL for Slack and GitHub while running locally
 ```
 
@@ -112,7 +112,7 @@ Invite the bot to the project channel.
 
 **CI in the product repo:** start each test name with the criterion key and version
 (`AC-7-1@v1 …`) and post the JUnit XML to `<public URL>/ci` with the header
-`X-Threadline-Secret` (see checkout-app's workflow).
+`X-SpecKeeper-Secret` (see checkout-app's workflow).
 
 **Deploy:** `GCP_PROJECT=... GITHUB_REPO=org/repo PRD_DOC_ID=... ./deploy.sh` (Cloud Run,
 asia-southeast1, secrets from Secret Manager).
@@ -125,7 +125,7 @@ uv run pytest
 
 55 tests, about a second, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
-everything Threadline posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
+everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
 
 ## For contributors

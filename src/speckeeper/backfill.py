@@ -1,7 +1,7 @@
 """Open GitHub issues for approved requirements that don't have one yet: for requirements approved
 before GitHub was connected. Run with the server stopped (it keeps its own copy of the store):
 
-    uv run --env-file .env python -m threadline.backfill
+    uv run --env-file .env python -m speckeeper.backfill
 """
 
 from __future__ import annotations

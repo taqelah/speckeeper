@@ -100,7 +100,7 @@ class GitHubIssues:
                 "",
                 f"From {req.key} in the PRD. {_sources_line(req, markdown=True)}",
                 "",
-                "_Opened by Threadline after approval in Slack._",
+                "_Opened by Spec Keeper after approval in Slack._",
             ]
         )
 
