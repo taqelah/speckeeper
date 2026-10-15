@@ -220,8 +220,9 @@ class Asker:
     Questions run on Flash (lookup and summary need no more). The guardrail callbacks move a question
     to the fallback model on a rate limit (429, common with preview models' small quotas)."""
 
-    def __init__(self, store: Store, model: str | BaseLlm, fallback: str | BaseLlm = "") -> None:
-        self.runner = InMemoryRunner(agent=build_agent(store, model, fallback), app_name="speckeeper")
+    def __init__(self, store: Store, model: str | BaseLlm, fallback: str | BaseLlm = "", plugins: list | None = None) -> None:
+        # plugins: runner-wide ADK plugins, such as BigQuery analytics (analytics.py)
+        self.runner = InMemoryRunner(agent=build_agent(store, model, fallback), app_name="speckeeper", plugins=plugins or [])
 
     async def ask(self, question: str, user: str = "slack") -> str:
         runner = self.runner
