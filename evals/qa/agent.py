@@ -6,5 +6,5 @@ from speckeeper.agent import build_agent, use_vertex
 
 from .fixture import fixture_store
 
-use_vertex(os.environ.get("GCP_PROJECT", "aibuildercup2026-511513"), os.environ.get("GEMINI_LOCATION", "global"))
+use_vertex(os.environ["GCP_PROJECT"], os.environ.get("GEMINI_LOCATION", "global"))
 root_agent = build_agent(fixture_store(), os.environ.get("GEMINI_FLASH_MODEL", "gemini-3.8-flash"))
