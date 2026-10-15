@@ -36,6 +36,7 @@ def test_the_plugin_is_set_up_for_privacy_and_speed():
     c = plugin.config
     assert c.content_formatter is analytics.redact and c.log_multi_modal_content is False
     assert c.flush_on_run_end is False and c.enable_otel_correlation is True and c.table_id == "agent_events"
+    assert c.create_views is False  # views would need roles/bigquery.jobUser
 
 
 def captured(plugin: BigQueryAgentAnalyticsPlugin) -> list[dict]:
@@ -94,7 +95,7 @@ def test_redact_keeps_counts_and_names_only():
         "usage": {"prompt": 5},
     }
     assert analytics.redact({"response": "text: 'secret'"}, "LLM_RESPONSE")["response"] == "text, 14 chars"
-    assert analytics.redact({"prompt": [1, 2, 3], "system_prompt": "secret"}, "LLM_REQUEST") == {"messages": 3}
+    assert analytics.redact({"prompt": [1, 2, 3], "system_prompt": "secret"}, "LLM_REQUEST") is None
     assert analytics.redact({"tool": "get_history", "args": {"key": " req-9 "}}, "TOOL_STARTING") == {"tool": "get_history", "args": {"key": "req-9"}}
     assert analytics.redact({"tool": "get_requirement", "result": {"error": "No requirement REQ-99."}}, "TOOL_COMPLETED")["found"] is False
     assert analytics.redact({"text_summary": "secret question"}, "USER_MESSAGE_RECEIVED") == {"question_chars": 15}
