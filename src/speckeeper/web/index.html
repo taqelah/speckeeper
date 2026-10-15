@@ -155,6 +155,14 @@
         <div><div class="n">&#36;0.09</div><div class="t">One full demo, end to end</div></div>
       </div>
       <p>From 32 logged calls at Gemini list prices on Oct 16, 2026: medians per action, and the demo adds them up. Approvals, the PRD, GitHub issues and CI results make no Gemini call. <a href="$repo/blob/d58e67c8e8400e5a1e0f541101df7be5336b5254/evals/cost.md">How it is worked out</a>.</p>
+      <p class="big">Where a “why?” answer’s time goes, measured by BigQuery agent analytics and Cloud Trace.</p>
+      <div class="stats">
+        <div><div class="n">3.7s</div><div class="t">One Gemini call (median)</div></div>
+        <div><div class="n">&lt;0.1s</div><div class="t">One Firestore lookup by a tool (40–73 ms)</div></div>
+        <div><div class="n">19–25s</div><div class="t">A whole answer, nearly all of it Gemini thinking</div></div>
+        <div><div class="n">2.5</div><div class="t">Gemini calls per answer, on average; tools run between them</div></div>
+      </div>
+      <p>The first questions logged in BigQuery, each also a Cloud Trace trace; a small sample. Lookups are not the bottleneck: lower thinking for the agent, as for thread watch, is the next speed-up. <a href="$repo/blob/98659af15324588a2bf61f2bad6e67ec39e75448/analytics/queries.sql">The queries</a>.</p>
       <div class="scroll">
         <table style="min-width: 640px">
           <thead><tr><th scope="col" style="width: 26%">Google product</th><th scope="col">What we tuned</th></tr></thead>
