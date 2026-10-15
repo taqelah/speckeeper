@@ -8,7 +8,7 @@ set -euo pipefail
 REGION="${GCP_LOCATION:-asia-southeast1}"
 SA="threadline@${GCP_PROJECT}.iam.gserviceaccount.com"
 
-gcloud run deploy threadline \
+gcloud run deploy threadline --quiet \
   --project "$GCP_PROJECT" --region "$REGION" --source . \
   --service-account "$SA" \
   --allow-unauthenticated \

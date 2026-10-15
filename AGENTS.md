@@ -49,7 +49,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 
 | Path | Role |
 |---|---|
-| `src/threadline/main.py` | FastAPI app: `/slack/events`, `/ci`, `/healthz`; builds the service from settings |
+| `src/threadline/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
 | `src/threadline/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
 | `src/threadline/service.py` | What Threadline does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
 | `src/threadline/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |

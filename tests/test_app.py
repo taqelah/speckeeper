@@ -20,7 +20,7 @@ def client():
 
 
 def test_health():
-    assert client().get("/healthz").json() == {"ok": True}
+    assert client().get("/health").json() == {"ok": True} == client().get("/healthz").json()
 
 
 def test_ci_rejects_a_wrong_secret():

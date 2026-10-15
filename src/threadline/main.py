@@ -72,7 +72,8 @@ def create_app(s: Settings | None = None, svc: Threadline | None = None, slack_c
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Threadline", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
-    @api.get("/healthz")
+    @api.get("/health")
+    @api.get("/healthz")  # Cloud Run's front end reserves /healthz, so on Cloud Run use /health
     async def healthz():
         return {"ok": True}
 
