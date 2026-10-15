@@ -31,9 +31,11 @@ def test_enabling_exports_to_cloud_trace_without_message_content(monkeypatch):
     monkeypatch.delenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", raising=False)
     calls = []
     monkeypatch.setattr(gc, "get_gcp_exporters", lambda **kw: calls.append(kw) or "hooks")
-    monkeypatch.setattr(setup, "maybe_set_otel_providers", lambda hooks: calls.append(hooks))
-    assert tracing.setup_tracing(True) is True
-    assert calls == [{"enable_cloud_tracing": True}, ["hooks"]]
+    monkeypatch.setattr(gc, "get_gcp_resource", lambda project: f"resource for {project}")
+    monkeypatch.setattr(setup, "maybe_set_otel_providers", lambda hooks, otel_resource: calls.append((hooks, otel_resource)))
+    assert tracing.setup_tracing(True, "speckeeper-taqelah") is True
+    # The resource must name the project: the Telemetry API refuses spans without gcp.project_id.
+    assert calls == [{"enable_cloud_tracing": True}, (["hooks"], "resource for speckeeper-taqelah")]
     assert os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
 
 
@@ -56,6 +58,12 @@ def spans(monkeypatch):
     monkeypatch.setattr(trace, "_TRACER_PROVIDER", provider)  # a provider for this test only
     yield exporter
     provider.shutdown()
+
+
+def test_the_resource_names_the_project():
+    from google.adk.telemetry.google_cloud import get_gcp_resource
+
+    assert get_gcp_resource("speckeeper-taqelah").attributes["gcp.project_id"] == "speckeeper-taqelah"
 
 
 def test_a_question_traces_the_model_and_tool_calls_but_not_the_words(spans):

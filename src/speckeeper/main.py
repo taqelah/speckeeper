@@ -54,7 +54,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
     from .tracing import setup_tracing
 
     use_vertex(s.gcp_project, s.gemini_location)
-    setup_tracing(s.trace_to_cloud)
+    setup_tracing(s.trace_to_cloud, s.gcp_project)
     return SpecKeeper(
         store,
         generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),

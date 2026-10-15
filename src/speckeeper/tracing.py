@@ -12,7 +12,7 @@ import os
 log = logging.getLogger("speckeeper")
 
 
-def setup_tracing(enabled: bool) -> bool:
+def setup_tracing(enabled: bool, project: str = "") -> bool:
     if not enabled:
         return False
     # Timings, models and token counts only: ADK would otherwise copy prompts and answers into spans,
@@ -20,10 +20,11 @@ def setup_tracing(enabled: bool) -> bool:
     os.environ.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
     os.environ.setdefault("OTEL_SERVICE_NAME", "speckeeper")
     try:
-        from google.adk.telemetry.google_cloud import get_gcp_exporters
+        from google.adk.telemetry.google_cloud import get_gcp_exporters, get_gcp_resource
         from google.adk.telemetry.setup import maybe_set_otel_providers
 
-        maybe_set_otel_providers([get_gcp_exporters(enable_cloud_tracing=True)])
+        # The resource names the project (gcp.project_id); without it the Telemetry API answers 400.
+        maybe_set_otel_providers([get_gcp_exporters(enable_cloud_tracing=True)], otel_resource=get_gcp_resource(project or None))
     except Exception:  # tracing must never stop the service from starting
         log.warning("Cloud Trace export is off: setup failed", exc_info=True)
         return False
