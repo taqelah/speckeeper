@@ -51,6 +51,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
 
         issues = GitHubIssues(s.github_token, s.github_repo)
     from .agent import Asker, use_vertex
+    from .analytics import analytics_plugins
     from .tracing import setup_tracing
 
     use_vertex(s.gcp_project, s.gemini_location)
@@ -60,7 +61,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
         generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),
         prd,
         issues,
-        Asker(store, s.flash_model, fallback=s.pro_model),
+        Asker(store, s.flash_model, fallback=s.pro_model, plugins=analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)),
         triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
         min_confidence=s.watch_min_confidence,
     )
