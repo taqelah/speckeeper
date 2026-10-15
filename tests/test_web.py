@@ -26,9 +26,9 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
 
 def test_buttons_appear_only_for_links_that_are_set():
     body = page().get("/").text
-    assert "Join the demo Slack" not in body and "Watch the demo" not in body and "See the code" in body
+    assert "Join our Slack to try it" not in body and "Watch the demo" not in body and "See the code" in body
     body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_video_url="https://youtu.be/v", contact_email="a@b.co").get("/").text
-    assert "Join the demo Slack" in body and "Watch the demo" in body and "mailto:a@b.co" in body
+    assert "Join our Slack to try it" in body and "Watch the demo" in body and "mailto:a@b.co" in body
     assert "javascript:" not in page(demo_slack_invite="javascript:alert(1)").get("/").text
 
 

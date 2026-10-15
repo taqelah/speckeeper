@@ -49,7 +49,7 @@ def status_strip(svc) -> str:
 def landing(s: Settings, status: str = "") -> str:
     q = lambda v: html.escape(v, quote=True)
     repo = s.source_repo or "https://github.com/taqelah/speckeeper"
-    ctas = _link(s.demo_slack_invite, "Join the demo Slack", "primary") + _link(s.demo_video_url, "Watch the demo", "ghost")
+    ctas = _link(s.demo_slack_invite, "Join our Slack to try it", "primary") + _link(s.demo_video_url, "Watch the demo", "ghost")
     if not ctas:
         ctas = _link(repo, "See the code", "ghost")
     minutes = int(s.requests_window_seconds // 60)
