@@ -20,7 +20,7 @@ BASELINE = "1.0.0"
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
 class PRD(Protocol):

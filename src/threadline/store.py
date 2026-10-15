@@ -9,6 +9,11 @@ from typing import Protocol
 from .models import Proposal, Requirement
 
 
+def _history_order(p: Proposal) -> tuple:
+    """Oldest first; a requirement's creation before any change made in the same instant."""
+    return (p.decided_at, p.kind == "change", p.requirement.version)
+
+
 class Store(Protocol):
     def save_proposal(self, p: Proposal) -> None: ...
     def get_proposal(self, pid: str) -> Proposal | None: ...
@@ -57,7 +62,7 @@ class MemoryStore:
     def proposals_for(self, key: str) -> list[Proposal]:
         """Every decided proposal that created or changed a requirement, oldest first."""
         mine = [p for p in self._proposals.values() if p.target == key or (p.kind == "new" and p.requirement.key == key)]
-        return [p.model_copy(deep=True) for p in sorted(mine, key=lambda p: p.decided_at)]
+        return [p.model_copy(deep=True) for p in sorted(mine, key=_history_order)]
 
     def get_meta(self, key: str, default: str = "") -> str:
         return self._meta.get(key, default)
@@ -112,22 +117,28 @@ class FileStore(MemoryStore):
 class FirestoreStore:
     """One document per proposal and per requirement; a counter document hands out REQ numbers."""
 
-    def __init__(self, project: str, first_req: int = 1) -> None:
+    def __init__(self, project: str, first_req: int = 1, prefix: str = "") -> None:
+        """`prefix` puts every collection under another name (\"test_proposals\"): for checks against the
+        real database that must not touch production data."""
         from google.cloud import firestore
 
         self._fs = firestore
         self._first = first_req
+        self._prefix = prefix
         self._db = firestore.Client(project=project)
 
+    def _col(self, name: str):
+        return self._db.collection(self._prefix + name)
+
     def save_proposal(self, p: Proposal) -> None:
-        self._db.collection("proposals").document(p.id).set(p.model_dump())
+        self._col("proposals").document(p.id).set(p.model_dump())
 
     def get_proposal(self, pid: str) -> Proposal | None:
-        snap = self._db.collection("proposals").document(pid).get()
+        snap = self._col("proposals").document(pid).get()
         return Proposal.model_validate(snap.to_dict()) if snap.exists else None
 
     def next_req_number(self) -> int:
-        ref = self._db.collection("meta").document("counters")
+        ref = self._col("meta").document("counters")
         transaction = self._db.transaction()
 
         @self._fs.transactional
@@ -140,28 +151,28 @@ class FirestoreStore:
         return bump(transaction)
 
     def save_requirement(self, r: Requirement) -> None:
-        self._db.collection("requirements").document(r.key).set(r.model_dump())
+        self._col("requirements").document(r.key).set(r.model_dump())
 
     def get_requirement(self, key: str) -> Requirement | None:
-        snap = self._db.collection("requirements").document(key).get()
+        snap = self._col("requirements").document(key).get()
         return Requirement.model_validate(snap.to_dict()) if snap.exists else None
 
     def requirements(self) -> list[Requirement]:
-        return [Requirement.model_validate(s.to_dict()) for s in self._db.collection("requirements").stream()]
+        return [Requirement.model_validate(s.to_dict()) for s in self._col("requirements").stream()]
 
     def proposals_in_group(self, group_id: str) -> list[Proposal]:
-        docs = self._db.collection("proposals").where("group_id", "==", group_id).stream()
+        docs = self._col("proposals").where("group_id", "==", group_id).stream()
         return [Proposal.model_validate(d.to_dict()) for d in docs]
 
     def get_meta(self, key: str, default: str = "") -> str:
-        snap = self._db.collection("meta").document("project").get()
+        snap = self._col("meta").document("project").get()
         return (snap.to_dict() or {}).get(key, default) if snap.exists else default
 
     def set_meta(self, key: str, value: str) -> None:
-        self._db.collection("meta").document("project").set({key: value}, merge=True)
+        self._col("meta").document("project").set({key: value}, merge=True)
 
     def proposals_for(self, key: str) -> list[Proposal]:
-        col = self._db.collection("proposals")
+        col = self._col("proposals")
         found = {d.id: d.to_dict() for d in col.where("target", "==", key).stream()}
         found.update({d.id: d.to_dict() for d in col.where("requirement.key", "==", key).stream()})
-        return sorted((Proposal.model_validate(v) for v in found.values()), key=lambda p: p.decided_at)
+        return sorted((Proposal.model_validate(v) for v in found.values()), key=_history_order)

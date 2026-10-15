@@ -61,3 +61,12 @@ def test_a_rate_limited_question_is_asked_again_on_the_fallback_model():
     asker._run = fake_run
     assert asyncio.run(asker.ask("why?")) == "answer"
     assert used == ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
+
+
+def test_history_puts_creation_before_a_change_with_the_same_timestamp():
+    from threadline.models import Proposal, Requirement
+    from threadline.store import _history_order
+
+    created = Proposal(id="a", kind="new", requirement=Requirement(key="REQ-7", title="25 MB"), channel="C", thread_ts="1", decided_at="2026-10-15T03:40:00.000+00:00")
+    changed = Proposal(id="b", kind="change", target="REQ-7", requirement=Requirement(key="REQ-7", title="10 MB", version=2), channel="C", thread_ts="2", decided_at="2026-10-15T03:40:00.000+00:00")
+    assert [p.id for p in sorted([changed, created], key=_history_order)] == ["a", "b"]
