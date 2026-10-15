@@ -56,6 +56,18 @@ def build_slack_app(
     app = AsyncApp(token=token, signing_secret=signing_secret, client=client, process_before_response=wait)
     names: dict[str, str] = {}  # Slack user id -> display name, kept across calls
     pending: dict[str, asyncio.Task] = {}  # thread -> its waiting thread-watch check
+    seen: dict[str, list[str]] = {}  # thread -> messages marked 👀 that its next check covers
+
+    async def eyes(client, channel: str, ts: str, on: bool = True) -> None:
+        """👀 on a message while Spec Keeper works on it, as GitHub apps do. Needs the reactions:write
+        scope; without it (or if someone removed the reaction) this quietly does nothing."""
+        try:
+            if on:
+                await client.reactions_add(channel=channel, timestamp=ts, name="eyes")
+            else:
+                await client.reactions_remove(channel=channel, timestamp=ts, name="eyes")
+        except Exception as e:
+            log.info("couldn't %s 👀 on %s: %s", "add" if on else "remove", ts, getattr(e, "response", {}).get("error", e) if hasattr(e, "response") else e)
 
     @app.event("app_mention")
     async def on_mention(event, client, say):
@@ -74,14 +86,19 @@ def build_slack_app(
             return
         await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in
         question = text.endswith("?") or first in QUESTION_WORDS
-        if doc_id and not question:
-            await capture_meeting(client, channel, thread_ts, doc_id)  # a notes link, whatever the wording
-        elif first in CAPTURE_WORDS:
-            await capture(client, channel, thread_ts, mention_ts=event["ts"])
-        elif svc.asker and question:
-            await answer(client, channel, thread_ts, MENTION.sub("", event.get("text", "")).strip(), event.get("user", "slack"))
-        else:
+        if not (doc_id and not question) and first not in CAPTURE_WORDS and not (svc.asker and question):
             await say(text=HELP, thread_ts=thread_ts)
+            return
+        await eyes(client, channel, event["ts"])
+        try:
+            if doc_id and not question:
+                await capture_meeting(client, channel, thread_ts, doc_id)  # a notes link, whatever the wording
+            elif first in CAPTURE_WORDS:
+                await capture(client, channel, thread_ts, mention_ts=event["ts"])
+            else:
+                await answer(client, channel, thread_ts, MENTION.sub("", event.get("text", "")).strip(), event.get("user", "slack"))
+        finally:
+            await eyes(client, channel, event["ts"], on=False)
 
     async def answer(client, channel: str, thread_ts: str, question: str, user: str) -> None:
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Looking it up…_")
@@ -322,12 +339,17 @@ def build_slack_app(
     # --- thread watch ---
 
     async def check_thread(client, channel: str, thread_ts: str) -> None:
+        marked = seen.pop(f"{channel}:{thread_ts}", [])
+        found = None
         try:
             messages = await read_thread(client, channel, thread_ts, links=False)
             found = await asyncio.to_thread(svc.triage_thread, channel, thread_ts, messages)
         except Exception:
             log.exception("thread watch failed")  # a missed suggestion is fine; a noisy error is not
-            return
+        keep = {m.ts for m in found.sources} if found else set()
+        for ts in marked:  # 👀 stays only on what the suggestion rests on
+            if ts not in keep:
+                await eyes(client, channel, ts, on=False)
         if found:
             what = f"changes {found.target}" if found.kind == "change" else "agrees a new requirement"
             await client.chat_postMessage(
@@ -350,6 +372,8 @@ def build_slack_app(
         state = await asyncio.to_thread(svc.watch_state, channel, thread_ts)
         if not state or state.get("muted"):
             return  # not a thread I was mentioned in: no Gemini call at all
+        await eyes(client, channel, event["ts"])
+        seen.setdefault(f"{channel}:{thread_ts}", []).append(event["ts"])
         if wait or quiet <= 0:
             await check_thread(client, channel, thread_ts)
             return

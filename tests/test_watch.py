@@ -13,7 +13,7 @@ from speckeeper import service
 from speckeeper.extract import triage
 from speckeeper.main import create_app
 from speckeeper.models import Requirement, Source
-from test_e2e import CHANGE, KICKOFF, LINK, App, Gemini, kickoff_approved, settings
+from test_e2e import CHANGE, KICKOFF, LINK, App, Asker, Gemini, kickoff_approved, settings
 
 ROOT = "100.1"  # the kickoff mention starts the thread
 CAP = {"type": "message", "channel": "C1", "user": "UWEI", "text": "Storage costs went up, let's cap uploads at 10 MB", "ts": "200.1", "thread_ts": ROOT}
@@ -167,3 +167,29 @@ def test_triage_ignores_a_change_to_a_requirement_that_does_not_exist():
     new = [Source(ts="2.0", user="U", text="cap at 10 MB")]
     gen = lambda p, s: {"verdict": "change", "target": "REQ-99", "confidence": 0.99, "summary": "x", "source_ts": ["2.0"]}
     assert triage([], new, gen, approved, 0.8) is None
+
+
+def reactions(app: App, method: str) -> list[str]:
+    return [a["timestamp"] for a in app.slack.posted(method) if a.get("name") == "eyes" and a["timestamp"] != ROOT]
+
+
+def test_W_13_eyes_while_looking_and_left_on_what_the_suggestion_rests_on():
+    app, t = watched_app({"verdict": "none", "target": "", "confidence": 0.9, "summary": "", "source_ts": []}, SAYS_CHANGE)
+    say(app, {**CAP, "ts": "200.1", "text": "lunch?"})
+    assert reactions(app, "reactions.add") == ["200.1"] and reactions(app, "reactions.remove") == ["200.1"]
+    say(app, {**CAP, "ts": "201.1"})
+    assert "201.1" in reactions(app, "reactions.add") and "201.1" not in reactions(app, "reactions.remove")
+
+
+def test_W_14_eyes_on_a_mention_until_the_reply_is_posted():
+    app = App(asker=Asker())
+    app.mention("why is the limit 25 MB?", ts="300.1")
+    names = [m for m, a in app.slack.calls if m in ("reactions.add", "reactions.remove", "chat.update")]
+    assert names == ["reactions.add", "chat.update", "reactions.remove"]
+
+
+def test_W_15_help_and_mute_get_no_eyes():
+    app, t = watched_app()
+    app.mention("hello", ts="300.1", thread_ts=ROOT)
+    app.mention("mute", ts="301.1", thread_ts=ROOT)
+    assert reactions(app, "reactions.add") == [] or "300.1" not in reactions(app, "reactions.add")
