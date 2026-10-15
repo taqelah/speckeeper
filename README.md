@@ -120,6 +120,9 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   model call and counts every call's tokens, through ADK callbacks.
 - **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
   question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+- **Engines.** `CAPTURE_ENGINE=adk` runs capture and thread watch as ADK multi-agent pipelines (a Flash triage
+  agent and a gate; a Pro capture agent and a citation check). The default, `direct`, makes the same calls
+  without ADK. Both share the prompts, schemas and checks, and the test suite runs against both.
 - **Analytics.** Each question's events (Gemini calls with tokens and latency, tool calls) stream to
   BigQuery through ADK's analytics plugin, with a formatter that keeps counts and names and drops all text.
   Cost and latency queries are in [analytics/queries.sql](analytics/queries.sql).
@@ -165,7 +168,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-145 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+156 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.

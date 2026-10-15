@@ -64,7 +64,18 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
         Asker(store, s.flash_model, fallback=s.pro_model, plugins=analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)),
         triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
         min_confidence=s.watch_min_confidence,
+        engine=build_engine(s) if not generate else None,
     )
+
+
+def build_engine(s: Settings):
+    """CAPTURE_ENGINE=adk runs capture and thread watch as ADK pipelines; anything else keeps direct calls."""
+    if s.capture_engine != "adk":
+        return None
+    from .analytics import analytics_plugins
+    from .pipelines import AdkEngine
+
+    return AdkEngine(s.pro_model, s.flash_model, s.watch_thinking, plugins=lambda: analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location))
 
 
 def lazy_drive_fetch():

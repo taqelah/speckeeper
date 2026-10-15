@@ -94,22 +94,34 @@ def approved_text(approved: list[Requirement]) -> str:
     return "\n".join(f"{r.key} | {r.title} | " + " ; ".join(a.gherkin.replace("\n", " ") for a in r.acs) for r in approved)
 
 
-def extract(messages: list[Source], generate: Generate, approved: list[Requirement] | None = None) -> tuple[list[tuple[Requirement, str]], list[str]]:
-    """Returns (requirement, key of the approved requirement it changes or "") pairs, and open questions."""
-    approved = approved or []
-    prompt = PROMPT.format(thread=thread_text(messages), approved=approved_text(approved))
-    raw = Extraction.model_validate(generate(prompt, Extraction))
+def capture_prompt(messages: list[Source], approved: list[Requirement]) -> str:
+    return PROMPT.format(thread=thread_text(messages), approved=approved_text(approved))
+
+
+def cited(raw: Extraction, allowed_ts: set[str]) -> Extraction:
+    """The citation check: only requirements with acceptance criteria that cite a message really in the
+    discussion survive. Shared by both engines (the ADK pipeline runs it as its citation_check step)."""
+    keep = [r for r in raw.requirements if r.acceptance_criteria and any(ts in allowed_ts for ts in r.source_ts)]
+    return Extraction(requirements=keep, open_questions=raw.open_questions)
+
+
+def to_requirements(raw: Extraction, messages: list[Source], approved: list[Requirement]) -> tuple[list[tuple[Requirement, str]], list[str]]:
     by_ts = {m.ts: m for m in messages}
     keys = {r.key for r in approved}
     reqs: list[tuple[Requirement, str]] = []
-    for item in raw.requirements:
+    for item in cited(raw, set(by_ts)).requirements:  # no citation, no card
         sources = [by_ts[ts] for ts in item.source_ts if ts in by_ts]
-        if not sources or not item.acceptance_criteria:
-            continue  # no citation, no card
         acs = [AcceptanceCriterion(key="", gherkin=f"Given {a.given}\nWhen {a.when}\nThen {a.then}") for a in item.acceptance_criteria]
         changes = item.changes.strip().upper() if item.changes.strip().upper() in keys else ""
         reqs.append((Requirement(key="", title=item.title.strip(), acs=acs, sources=sources), changes))
     return reqs, raw.open_questions
+
+
+def extract(messages: list[Source], generate: Generate, approved: list[Requirement] | None = None) -> tuple[list[tuple[Requirement, str]], list[str]]:
+    """Returns (requirement, key of the approved requirement it changes or "") pairs, and open questions."""
+    approved = approved or []
+    raw = Extraction.model_validate(generate(capture_prompt(messages, approved), Extraction))
+    return to_requirements(raw, messages, approved)
 
 
 class Triage(BaseModel):
@@ -160,25 +172,39 @@ class Suggestion:
     sources: list[Source]
 
 
-def triage(context: list[Source], new: list[Source], generate: Generate, approved: list[Requirement], min_confidence: float) -> Suggestion | None:
-    """One cheap call: do the newest messages change or add a requirement? None unless it is sure, cites
-    the new messages, and (for a change) names a requirement that exists."""
-    if not new:
-        return None
-    prompt = TRIAGE_PROMPT.format(approved=approved_text(approved), context=thread_text(context) or "(none)", new=thread_text(new))
-    raw = Triage.model_validate(generate(prompt, Triage))
+def triage_prompt(context: list[Source], new: list[Source], approved: list[Requirement]) -> str:
+    return TRIAGE_PROMPT.format(approved=approved_text(approved), context=thread_text(context) or "(none)", new=thread_text(new))
+
+
+def passes_gate(raw: Triage, new_ts: set[str], approved_keys: set[str], min_confidence: float) -> bool:
+    """The triage gate: a change or new requirement, sure enough, citing the new messages, and for a change
+    naming a requirement that exists. Shared by both engines (the ADK pipeline's triage_gate step)."""
+    verdict = raw.verdict.strip().lower()
+    if verdict not in ("change", "new") or raw.confidence < min_confidence or not any(ts in new_ts for ts in raw.source_ts):
+        return False
+    return verdict != "change" or raw.target.strip().upper() in approved_keys
+
+
+def to_suggestion(raw: Triage, new: list[Source], approved: list[Requirement], min_confidence: float) -> Suggestion | None:
     verdict = raw.verdict.strip().lower()
     logging.getLogger("speckeeper.watch").info(  # the decision only, never the messages
         "triage verdict=%s target=%s confidence=%.2f new=%d", verdict, raw.target.strip(), raw.confidence, len(new)
     )
     by_ts = {m.ts: m for m in new}
-    sources = [by_ts[ts] for ts in raw.source_ts if ts in by_ts]
+    if not passes_gate(raw, set(by_ts), {r.key for r in approved}, min_confidence):
+        return None
     target = raw.target.strip().upper()
-    if verdict not in ("change", "new") or raw.confidence < min_confidence or not sources:
-        return None
-    if verdict == "change" and target not in {r.key for r in approved}:
-        return None
+    sources = [by_ts[ts] for ts in raw.source_ts if ts in by_ts]
     return Suggestion(verdict, target if verdict == "change" else "", raw.summary.strip()[:120], raw.confidence, sources)
+
+
+def triage(context: list[Source], new: list[Source], generate: Generate, approved: list[Requirement], min_confidence: float) -> Suggestion | None:
+    """One cheap call: do the newest messages change or add a requirement? None unless it is sure, cites
+    the new messages, and (for a change) names a requirement that exists."""
+    if not new:
+        return None
+    raw = Triage.model_validate(generate(triage_prompt(context, new, approved), Triage))
+    return to_suggestion(raw, new, approved, min_confidence)
 
 
 def gemini_generate(project: str, location: str, model: str, fallback: str = "", thinking: str = "") -> Generate:

@@ -33,6 +33,8 @@ jobs:
       - run: uv sync --locked
       - name: Tests
         run: uv run pytest -q --cov=speckeeper --cov-report=term --cov-report=markdown-append:$GITHUB_STEP_SUMMARY --cov-fail-under=80
+      - name: Tests through the ADK pipelines (CAPTURE_ENGINE=adk)
+        run: uv run pytest -q --engine=adk
 
   audit:
     name: Dependency audit
