@@ -60,12 +60,24 @@ def build_service(s: Settings) -> SpecKeeper:
     def plugins() -> list:  # a fresh set per runner: the "why?" agent, capture and thread watch
         return analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)
 
+    if s.agent_engine:  # the agent on Vertex AI Agent Engine; the local one answers if it fails, with the same Memory Bank
+        from google.adk.memory import VertexAiMemoryBankService
+
+        from .memory import LookMemory
+        from .remote import RemoteAsker
+
+        region = s.agent_engine.split("/locations/")[1].split("/")[0]
+        bank = VertexAiMemoryBankService(project=s.gcp_project, location=region, agent_engine_id=s.agent_engine.rsplit("/", 1)[-1])
+        local = Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins(), memory=LookMemory(bank))
+        asker = RemoteAsker(s.agent_engine, fallback=local)
+    else:
+        asker = Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins())
     return SpecKeeper(
         store,
         AdkEngine(s.pro_model, s.flash_model, s.watch_thinking, plugins=plugins),
         prd,
         issues,
-        Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins()),
+        asker,
         min_confidence=s.watch_min_confidence,
     )
 

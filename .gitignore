@@ -6,3 +6,6 @@ __pycache__/
 .data/
 .coverage
 evals/qa/results/
+
+# deploy_agent.sh writes these for the Agent Engine build
+agents/speckeeper_engine/requirements.txt

@@ -63,6 +63,9 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
 | `src/speckeeper/pipelines.py` | Capture and thread watch as ADK multi-agent pipelines: `SequentialAgent`[Flash `triage_agent` → `triage_gate`] and [Pro `capture_agent` → `citation_check`], with the guardrail callbacks and the analytics plugins. The only way capture and thread watch run since Oct 16, 2026 |
+| `src/speckeeper/remote.py` | `RemoteAsker`: the "why?" agent on Vertex AI Agent Engine (`AGENT_ENGINE`), called through `:streamQuery`; the local agent answers if it fails |
+| `src/speckeeper/memory.py` | Memory Bank (`VertexAiMemoryBankService`): "looked at REQ-7 version 1 on <date>" per person; flags `changed_since_you_last_asked` in the after-tool callback |
+| `agents/speckeeper_engine/` | The agent as deployed to Agent Engine by `deploy_agent.sh` (Firestore, Gemini on the global endpoint, Memory Bank) |
 | `src/speckeeper/analytics.py` | ADK's BigQuery agent analytics plugin when `ANALYTICS_DATASET` is set (`deploy.sh` sets `speckeeper_analytics`); `redact()` keeps counts and names, never text. Queries in `analytics/queries.sql` |
 | `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
