@@ -98,6 +98,7 @@ async def main(runs: int) -> int:
     results = HERE / "results"
     results.mkdir(exist_ok=True)
     csv_path = results / "results.csv"
+    csv_path.unlink(missing_ok=True)  # ADK appends to it; a report covers one run of this script
     started = time.monotonic()
     ok = True
     try:
