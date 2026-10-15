@@ -27,6 +27,21 @@ list lookup, was $0.003; the dearest, which read two requirements' histories, wa
 **One full demo** costs about **$0.09 (S$0.12):** a meeting capture, a few thread-watch checks, a
 change review and a "why?" question. The S$383 trial credit covers about 3,000 of them.
 
+## From BigQuery
+
+Since Oct 16, every "why?" question also streams to BigQuery (`speckeeper_analytics.agent_events`,
+see [analytics/queries.sql](../analytics/queries.sql)). The first 2 questions there:
+
+| | Result |
+|---|---|
+| Cost per question | median $0.0024, max $0.0077, 2.5 Gemini calls on average |
+| Whole question | 19 to 25 s |
+| One Gemini call | p50 3.7 s; the slowest, 20.8 s, wrote the final answer with thinking |
+| One tool call (Firestore lookup) | 40 to 73 ms |
+
+Nearly all of a question's time is Gemini thinking; lookups take under 0.1 s. Lower thinking for the agent,
+as for thread watch, is the next speed-up to try.
+
 ## What drives the cost
 
 - **Thinking.** In meeting capture, thinking is 2,800 to 4,500 tokens, against 450 to 860 tokens of

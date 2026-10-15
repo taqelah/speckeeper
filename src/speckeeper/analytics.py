@@ -30,8 +30,6 @@ def redact(content: Any, event_type: str) -> dict | None:
         response = str(c.get("response", ""))
         kind = response if response.startswith("call:") else f"text, {len(response)} chars"  # "call: get_history" is a tool name
         return {"response": kind, "usage": c.get("usage")}
-    if event_type == "LLM_REQUEST":
-        return {"messages": len(c.get("prompt") or [])}
     if event_type == "TOOL_STARTING":
         args = {k: str(v).strip() if KEY.fullmatch(str(v).strip()) else f"{_chars(v)} chars" for k, v in (c.get("args") or {}).items()}
         return {"tool": c.get("tool"), "args": args}
@@ -43,7 +41,7 @@ def redact(content: Any, event_type: str) -> dict | None:
         return {"question_chars": _chars(c.get("text_summary", content))}
     if event_type == "AGENT_RESPONSE":
         return {"answer_chars": _chars(c.get("response", ""))}
-    return None  # agent instructions, errors and anything new: nothing kept (fail closed)
+    return None  # requests, agent instructions, errors and anything new: nothing kept (fail closed)
 
 
 def analytics_plugins(project: str, dataset: str, location: str = "asia-southeast1") -> list:
@@ -59,6 +57,7 @@ def analytics_plugins(project: str, dataset: str, location: str = "asia-southeas
             log_multi_modal_content=False,  # the content_parts column would repeat the question text
             flush_on_run_end=False,  # rows are written in the background, never on Slack's clock
             enable_otel_correlation=True,  # each row carries its Cloud Trace trace id
+            create_views=False,  # views need BigQuery jobs (another role); analytics/queries.sql reads the table
         )
         return [BigQueryAgentAnalyticsPlugin(project_id=project, dataset_id=dataset, location=location, config=config)]
     except Exception:  # analytics must never stop the service from starting
