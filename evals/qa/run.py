@@ -93,6 +93,8 @@ def summarise(csv_path: Path, runs: int, seconds: float) -> dict:
 
 
 async def main(runs: int) -> int:
+    if not os.environ.get("GCP_PROJECT"):
+        raise SystemExit("Set GCP_PROJECT to the project whose Gemini quota the eval may use.")
     es = eval_set()
     (HERE / "speckeeper_qa.evalset.json").write_text(es.model_dump_json(indent=2, exclude_none=True, by_alias=True))
     results = HERE / "results"
