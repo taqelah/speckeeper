@@ -68,6 +68,14 @@
   .facts b { color: var(--text); }
   .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 40px; }
   .two h2 { font-size: 30px; margin-bottom: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .stat { border: 1px solid var(--box); border-radius: 8px; padding: 16px; background: #0e1a3a; }
+  .stat .n { font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; color: var(--accent); line-height: 1.1; }
+  .stat .n small { font-size: 16px; color: var(--muted); font-weight: 500; }
+  .stat p { margin: 6px 0 0; font-size: 15px; color: var(--muted); }
+  .table.gcp table { min-width: 820px; }
+  .table.gcp td:first-child { font-weight: 600; white-space: nowrap; }
+  .table.gcp td.tuned { color: var(--muted); }
   figure.diagram { margin: 0; display: flex; flex-direction: column; gap: 10px; }
   figure.diagram a { display: block; }
   figure.diagram img { width: 100%; height: auto; border-radius: 8px; background: #f7f8fa; display: block; }
@@ -164,27 +172,47 @@
     </div>
   </section>
 
-  <section class="wrap block two" id="trust">
+  <section class="band" id="gcp" aria-labelledby="gcp-h">
+    <div class="wrap block">
+      <h2 id="gcp-h">Built on Google Cloud, tuned for speed</h2>
+      <p class="lead" style="font-size: 18px">Slack waits only 3 seconds for an answer, and nobody waits a minute for a bot. These are measured response times from the live service, and what we changed in each Google product to get them.</p>
+      <div class="stats">
+        <div class="stat"><div class="n">&lt; 3 <small>s</small></div><p>Slack gets its answer; the Gemini work carries on in the background</p></div>
+        <div class="stat"><div class="n">~3 <small>s</small></div><p>Thread-watch check with Gemini Flash, down from up to 42 s</p></div>
+        <div class="stat"><div class="n">11–14 <small>s</small></div><p>Reviewing a suggested change with Gemini Pro</p></div>
+        <div class="stat"><div class="n">37–45 <small>s</small></div><p>Capturing a whole meeting's notes with Gemini Pro</p></div>
+        <div class="stat"><div class="n">~1 <small>s</small></div><p>Capturing notes that haven't changed again: read from Drive, no Gemini call</p></div>
+      </div>
+      <div class="table gcp">
+        <table>
+          <thead><tr><th scope="col" style="width: 20%">Google product</th><th scope="col" style="width: 36%">What it does in Spec Keeper</th><th scope="col">What we tuned</th></tr></thead>
+          <tbody>
+            <tr><td>Cloud Run</td><td>Runs the whole service: Slack events, the CI webhook, this page. Singapore region, near the team.</td><td class="tuned">One instance always warm, so there's no cold start inside Slack's 3-second window. CPU stays on after the reply, so Gemini work finishes in the background.</td></tr>
+            <tr><td>Gemini 3.8 Flash</td><td>Thread watch: decides whether new messages change a requirement. Also powers the “why?” agent.</td><td class="tuned">Thinking set to low for the yes/no check: from up to 42 s to about 3 s, with all 7 test cases still right. Waits for 15 s of quiet, then checks every new message in one call.</td></tr>
+            <tr><td>Gemini 3.1 Pro</td><td>Capture: turns a thread or meeting notes into requirements with Given/When/Then criteria and sources.</td><td class="tuned">A JSON response schema, so every answer parses first time. Review sends only the messages a suggestion rests on, not the whole thread. Rules go in the system instruction, the data in the message.</td></tr>
+            <tr><td>Vertex AI</td><td>Serves both models from our project, on the global endpoint where the 3.x models live.</td><td class="tuned">Each model falls back to the other on a rate limit, so a busy preview model doesn't stop the demo. Token counts are logged on every call.</td></tr>
+            <tr><td>Agent Development Kit</td><td>The “why?” agent: three read-only tools over the requirements, criteria with CI status and change history.</td><td class="tuned">Answers come from tools, never from memory, with linked sources. A fresh session per question keeps answers independent.</td></tr>
+            <tr><td>Firestore</td><td>Requirements, proposals, versions, releases and thread-watch state. Native mode, Singapore.</td><td class="tuned">Each notes doc is fingerprinted, so unchanged notes never go back to Gemini. REQ numbers come from a transaction, so two approvals can't take the same number.</td></tr>
+            <tr><td>Google Docs and Drive APIs</td><td>Read the meeting notes; write the PRD.</td><td class="tuned">The PRD is rebuilt in one write (an HTML import into the same doc), not one edit per requirement.</td></tr>
+            <tr><td>Secret Manager</td><td>Slack, GitHub and CI secrets.</td><td class="tuned">The service account can read each secret by name and nothing else.</td></tr>
+            <tr><td>Cloud Logging and Monitoring</td><td>Audit events for approvals, refusals and resets; token usage per call.</td><td class="tuned">A daily token budget pauses Gemini before costs run away, with an alert. Another alert fires on repeated bad signatures.</td></tr>
+            <tr><td>Cloud Build</td><td>Builds and deploys from source with one script.</td><td class="tuned">The container installs dependencies from the lock file, so every deploy is the same build.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap block" id="trust">
     <div>
       <h2 id="ground-h">Grounding and guardrails</h2>
-      <ul class="facts" aria-labelledby="ground-h">
+      <ul class="facts two" aria-labelledby="ground-h" style="display: grid; gap: 14px 40px">
         <li><b>Every requirement cites its source:</b> the Slack message or the meeting time it came from. Anything Gemini returns without a citation from the input is dropped.</li>
         <li><b>Data sources:</b> messages in channels Spec Keeper is invited to, meeting notes shared with its account, and CI results from the repo's workflow. Nothing else.</li>
         <li><b>The question agent only reads:</b> three tools over Firestore (requirements, criteria with CI status, change history). It cannot change anything.</li>
         <li><b>Nothing is written until a person approves,</b> and the approvers can be limited to named people.</li>
         <li><b>Prompt injection:</b> Gemini's rules sit in its system instruction, messages are fenced as data, and instructions inside messages are never captured. Against real Gemini, 3 of 3 attack messages were blocked.</li>
         <li><b>Safe output:</b> text from people or Gemini is escaped in Slack (no @channel) and @mentions are defused on GitHub. Every decision and refusal is audit-logged.</li>
-      </ul>
-    </div>
-    <div>
-      <h2 id="fast-h">How we kept it fast</h2>
-      <ul class="facts" aria-labelledby="fast-h">
-        <li><b>Slack gets an answer within 3 seconds;</b> the Gemini work carries on in the background, on an instance that is always warm.</li>
-        <li><b>Thread-watch checks went from up to 42 s to about 3 s</b> by setting Gemini Flash's thinking to low. All 7 test cases still came out right.</li>
-        <li><b>Notes that haven't changed never go back to Gemini:</b> each doc is fingerprinted, so a repeat capture answers at once.</li>
-        <li><b>Review change sends only the messages a suggestion rests on,</b> not the whole thread: a smaller prompt and a sharper answer.</li>
-        <li><b>If Gemini 3.1 Pro is rate-limited, Flash answers instead,</b> and the other way round.</li>
-        <li><b>The PRD is rebuilt in one write,</b> not one edit per requirement.</li>
       </ul>
     </div>
   </section>
