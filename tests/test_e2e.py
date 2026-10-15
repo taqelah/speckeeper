@@ -529,3 +529,26 @@ def test_C_12_whitespace_only_edits_count_as_unchanged():
     notes.text = NOTES.replace("\n", "   \n") + "\n\n"
     app.mention(f"capture {LINK}", ts="101.1")
     assert "haven't changed" in app.slack.posted("chat.update")[-1]["text"] and len(gemini.prompts) == 1
+
+
+@pytest.mark.parametrize("words", ["analyse", "please check these notes", "here are today's notes:", ""])
+def test_C_13_any_mention_with_a_notes_link_reads_the_notes(words):
+    app = App()
+    app.mention(f"{words} {LINK}".strip())
+    assert "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
+
+
+@pytest.mark.parametrize("verb", ["analyse this", "Review this thread", "check this.", "sync"])
+def test_C_14_other_verbs_capture_a_thread(verb):
+    thread = [{"ts": "500.1", "user": "UMAYA", "text": "Uploads up to 25 MB."}]
+    gemini = Gemini({"requirements": [], "open_questions": []})
+    app = App(gemini, thread=thread)
+    app.mention(verb, ts="500.2", thread_ts="500.1")
+    assert len(gemini.prompts) == 1 and "Reading the thread" in app.slack.posted("chat.postMessage")[0]["text"]
+
+
+def test_C_15_a_question_with_a_link_goes_to_the_agent_not_capture():
+    asker = Asker()
+    app = App(asker=asker)
+    app.mention(f"why did we decide 25 MB in {LINK}?")
+    assert asker.questions and not any("Reading the meeting notes" in m["text"] for m in app.slack.posted("chat.postMessage"))

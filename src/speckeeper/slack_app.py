@@ -22,6 +22,10 @@ MENTION = re.compile(r"<@[A-Z0-9]+>")
 
 TZ = "Asia/Singapore"  # how message times are written in citations
 
+# How people ask for a capture, and how questions start. A mention with a notes link always reads the notes.
+CAPTURE_WORDS = {"capture", "analyse", "analyze", "review", "check", "read", "sync", "update", "process", "summarise", "summarize"}
+QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "how", "where", "are", "does", "can"}
+
 
 def _when(iso: str) -> str:
     """'Oct 15, 10:42' in Singapore time, for 'the notes were edited since …'."""
@@ -31,7 +35,7 @@ def _when(iso: str) -> str:
 
 HELP = (
     "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
-    "`@Spec Keeper capture <link to meeting notes>` to capture everything a meeting agreed, "
+    "share a meeting notes link with me (`@Spec Keeper <link>`) to capture everything the meeting agreed, "
     "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?`"
 )
 
@@ -49,11 +53,13 @@ def build_slack_app(
         channel = event["channel"]
         thread_ts = event.get("thread_ts") or event["ts"]
         doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
-        if text.startswith("capture") and doc_id:
-            await capture_meeting(client, channel, thread_ts, doc_id)
-        elif text.startswith("capture"):
+        first = text.split(" ", 1)[0].strip(",.:!") if text else ""
+        question = text.endswith("?") or first in QUESTION_WORDS
+        if doc_id and not question:
+            await capture_meeting(client, channel, thread_ts, doc_id)  # a notes link, whatever the wording
+        elif first in CAPTURE_WORDS:
             await capture(client, channel, thread_ts, mention_ts=event["ts"])
-        elif svc.asker and (text.endswith("?") or text.split(" ", 1)[0] in {"why", "what", "when", "who", "which", "is", "did", "has", "how"}):
+        elif svc.asker and question:
             await answer(client, channel, thread_ts, MENTION.sub("", event.get("text", "")).strip(), event.get("user", "slack"))
         else:
             await say(text=HELP, thread_ts=thread_ts)
