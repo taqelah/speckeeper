@@ -10,13 +10,14 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Protocol
 
 from . import ci
-from .extract import Generate, extract
+from .extract import Generate, Suggestion, extract, triage
 from .models import Proposal, Requirement, Source
 from .notes import FetchDoc, passages
 from .store import Store
@@ -24,6 +25,7 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 BASELINE = "1.0.0"
+SUGGEST_EVERY = 600  # seconds: at most one thread-watch suggestion per thread in this time
 
 
 def _now() -> str:
@@ -84,9 +86,14 @@ def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[
 
 
 class SpecKeeper:
-    def __init__(self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None, asker=None) -> None:
+    def __init__(
+        self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None, asker=None,
+        triage_generate: Generate | None = None, min_confidence: float = 0.8,
+    ) -> None:
         self.store = store
         self.generate = generate
+        self.triage_generate = triage_generate or generate  # Flash in production: triage runs far more often than capture
+        self.min_confidence = min_confidence
         self.prd = prd
         self.issues = issues
         self.asker = asker  # the ADK agent that answers questions (agent.Asker)
@@ -105,6 +112,65 @@ class SpecKeeper:
             self.store.save_proposal(p)
             proposals.append(p)
         return proposals, questions
+
+    # --- thread watch: suggest a capture when a thread Spec Keeper was mentioned in changes a requirement ---
+
+    @staticmethod
+    def _watch_key(channel: str, thread_ts: str) -> str:
+        return f"watch:{channel}:{thread_ts.replace('.', '_')}"  # no dots: Firestore reads them as field paths
+
+    def watch_state(self, channel: str, thread_ts: str) -> dict | None:
+        raw = self.store.get_meta(self._watch_key(channel, thread_ts))
+        return json.loads(raw) if raw else None
+
+    def _save_watch(self, channel: str, thread_ts: str, state: dict) -> None:
+        self.store.set_meta(self._watch_key(channel, thread_ts), json.dumps(state))
+
+    def watch(self, channel: str, thread_ts: str, since_ts: str) -> None:
+        """Start watching a thread Spec Keeper was mentioned in. Messages up to `since_ts` are only context:
+        what is already in the thread was the mention's business, not the watch's."""
+        if self.watch_state(channel, thread_ts) is None:
+            self._save_watch(channel, thread_ts, {"checked": since_ts, "muted": False, "last_suggested": 0, "suggested": []})
+
+    def mute(self, channel: str, thread_ts: str, muted: bool, since_ts: str) -> None:
+        state = self.watch_state(channel, thread_ts) or {"checked": since_ts, "last_suggested": 0, "suggested": []}
+        state["muted"] = muted
+        if not muted:
+            state["checked"] = since_ts  # what was said while muted stays unsuggested
+        self._save_watch(channel, thread_ts, state)
+
+    def triage_thread(self, channel: str, thread_ts: str, messages: list[Source]) -> Suggestion | None:
+        """Look at the messages since the last check. None (stay quiet) unless they clearly change or add a
+        requirement that hasn't been suggested or proposed in this thread already."""
+        state = self.watch_state(channel, thread_ts)
+        if not state or state.get("muted"):
+            return None
+        if time.time() - state.get("last_suggested", 0) < SUGGEST_EVERY:
+            return None  # not claimed: a later message brings these back once the quiet spell is over
+        checked = float(state["checked"])
+        new = [m for m in messages if float(m.ts) > checked]
+        if not new:
+            return None
+        earlier = [m for m in messages if float(m.ts) <= checked][-10:]
+        state["checked"] = new[-1].ts  # claim them first: a retry or a second instance won't triage them again
+        self._save_watch(channel, thread_ts, state)
+        approved = [r for r in self.store.requirements() if r.status == "approved"]
+        found = triage(earlier, new, self.triage_generate, approved, self.min_confidence)
+        if found is None:
+            return None
+        key = found.target or _norm(found.summary)
+        waiting = found.target and any(p.status == "pending" and p.thread_ts == thread_ts for p in self.store.proposals_for(found.target))
+        if key in state["suggested"] or waiting:
+            return None
+        state["suggested"].append(key)
+        state["last_suggested"] = time.time()
+        self._save_watch(channel, thread_ts, state)
+        return found
+
+    def not_a_change(self, channel: str, thread_ts: str, user: str, summary: str) -> None:
+        """A false alarm, kept for the evals' false-alarm rate."""
+        log.info("thread watch false alarm in %s/%s by %s: %s", channel, thread_ts, user, summary)
+        self.store.set_meta("watch_false_alarms", str(int(self.store.get_meta("watch_false_alarms", "0") or 0) + 1))
 
     def already_captured(self, doc_id: str) -> tuple[str, list[Proposal]] | None:
         """The group these notes were captured into before, if any: capturing twice must not file twice."""

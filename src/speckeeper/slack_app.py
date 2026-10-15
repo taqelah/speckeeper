@@ -12,7 +12,12 @@ from zoneinfo import ZoneInfo
 
 from slack_bolt.async_app import AsyncApp
 
-from .cards import APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, REVIEW_EACH, approval_card, baseline_card, change_card, decided_card, decided_group_card
+import json
+
+from .cards import (
+    APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, IGNORE_SUGGESTION, REVIEW_EACH, REVIEW_SUGGESTION,
+    approval_card, baseline_card, change_card, decided_card, decided_group_card, suggestion_card,
+)
 from .models import Source
 from .notes import FetchDoc, doc_id_in
 from .service import SpecKeeper
@@ -36,16 +41,21 @@ def _when(iso: str) -> str:
 HELP = (
     "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
     "share a meeting notes link with me (`@Spec Keeper <link>`) to capture everything the meeting agreed, "
-    "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?`"
+    "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?` "
+    "In threads you mention me in, I'll suggest a capture when a requirement changes (`@Spec Keeper mute` stops that)."
 )
 
 
 def build_slack_app(
-    token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False
+    token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False,
+    quiet: float = 30,
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
-    before the HTTP response so the test can check what was posted."""
+    before the HTTP response so the test can check what was posted (thread watch then checks at once).
+    `quiet` is how long a watched thread must be still before thread watch looks at it."""
     app = AsyncApp(token=token, signing_secret=signing_secret, client=client, process_before_response=wait)
+    names: dict[str, str] = {}  # Slack user id -> display name, kept across calls
+    pending: dict[str, asyncio.Task] = {}  # thread -> its waiting thread-watch check
 
     @app.event("app_mention")
     async def on_mention(event, client, say):
@@ -54,6 +64,15 @@ def build_slack_app(
         thread_ts = event.get("thread_ts") or event["ts"]
         doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
         first = text.split(" ", 1)[0].strip(",.:!") if text else ""
+        if first in ("mute", "unmute"):
+            await asyncio.to_thread(svc.mute, channel, thread_ts, first == "mute", event["ts"])
+            note = (
+                "Muted: I won't suggest captures in this thread. `@Spec Keeper unmute` turns it back on."
+                if first == "mute" else "Unmuted: I'll suggest a capture here when a requirement changes."
+            )
+            await say(text=note, thread_ts=thread_ts)
+            return
+        await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in
         question = text.endswith("?") or first in QUESTION_WORDS
         if doc_id and not question:
             await capture_meeting(client, channel, thread_ts, doc_id)  # a notes link, whatever the wording
@@ -73,12 +92,11 @@ def build_slack_app(
             reply = "I couldn't look that up just now. Try again in a minute."
         await client.chat_update(channel=channel, ts=working["ts"], text=reply)
 
-    async def capture(client, channel: str, thread_ts: str, mention_ts: str) -> None:
-        working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the thread…_")
+    async def read_thread(client, channel: str, thread_ts: str, skip_ts: str = "", links: bool = True) -> list[Source]:
+        """The thread's human messages as citable sources: 'Maya Lim, Oct 15 16:02' with a permalink."""
         replies = await client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-        raw = [m for m in replies.get("messages", []) if not m.get("bot_id") and m["ts"] != mention_ts]
-        names: dict[str, str] = {}
-        for uid in {m.get("user", "") for m in raw if m.get("user")}:
+        raw = [m for m in replies.get("messages", []) if not m.get("bot_id") and not m.get("subtype") and m["ts"] != skip_ts]
+        for uid in {m.get("user", "") for m in raw if m.get("user")} - names.keys():
             try:
                 prof = (await client.users_info(user=uid))["user"]
                 names[uid] = prof.get("profile", {}).get("display_name") or prof.get("real_name") or uid
@@ -86,14 +104,21 @@ def build_slack_app(
                 names[uid] = uid
         messages = []
         for m in raw:
-            try:
-                link = (await client.chat_getPermalink(channel=channel, message_ts=m["ts"]))["permalink"]
-            except Exception:
-                link = ""
+            link = ""
+            if links:
+                try:
+                    link = (await client.chat_getPermalink(channel=channel, message_ts=m["ts"]))["permalink"]
+                except Exception:
+                    pass
             when = datetime.fromtimestamp(float(m["ts"]), ZoneInfo(TZ)).strftime("%b %d %H:%M")
             messages.append(
                 Source(ts=m["ts"], user=m.get("user", ""), text=m.get("text", ""), permalink=link, label=f"{names.get(m.get('user', ''), 'someone')}, {when}")
             )
+        return messages
+
+    async def capture(client, channel: str, thread_ts: str, mention_ts: str) -> None:
+        working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the thread…_")
+        messages = await read_thread(client, channel, thread_ts, skip_ts=mention_ts)
         try:
             proposals, questions = await asyncio.to_thread(svc.capture, channel, thread_ts, messages)
         except Exception:
@@ -294,9 +319,65 @@ def build_slack_app(
             channel=body["channel"]["id"], user=body["user"]["id"], text="Editing is coming next. For now, dismiss, fix the thread and capture again."
         )
 
+    # --- thread watch ---
+
+    async def check_thread(client, channel: str, thread_ts: str) -> None:
+        try:
+            messages = await read_thread(client, channel, thread_ts, links=False)
+            found = await asyncio.to_thread(svc.triage_thread, channel, thread_ts, messages)
+        except Exception:
+            log.exception("thread watch failed")  # a missed suggestion is fine; a noisy error is not
+            return
+        if found:
+            what = f"changes {found.target}" if found.kind == "change" else "agrees a new requirement"
+            await client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts, text=f"Looks like this {what}: {found.summary}", blocks=suggestion_card(found, channel, thread_ts)
+            )
+
+    async def check_later(client, channel: str, thread_ts: str) -> None:
+        await asyncio.sleep(quiet)
+        pending.pop(f"{channel}:{thread_ts}", None)  # from here on a new message waits for its own check
+        await check_thread(client, channel, thread_ts)
+
     @app.event("message")
-    async def on_message(event):
-        # Drift detection hooks in here (Saturday): triage each new human message with Flash.
-        return
+    async def on_message(event, client, context):
+        thread_ts = event.get("thread_ts")
+        if event.get("subtype") or event.get("bot_id") or not thread_ts or thread_ts == event.get("ts"):
+            return  # edits, joins, bots, and messages outside a thread
+        if context.bot_user_id and f"<@{context.bot_user_id}>" in event.get("text", ""):
+            return  # a mention: on_mention has it
+        channel = event["channel"]
+        state = await asyncio.to_thread(svc.watch_state, channel, thread_ts)
+        if not state or state.get("muted"):
+            return  # not a thread I was mentioned in: no Gemini call at all
+        if wait or quiet <= 0:
+            await check_thread(client, channel, thread_ts)
+            return
+        key = f"{channel}:{thread_ts}"
+        if key in pending:
+            pending.pop(key).cancel()  # still talking: wait for a quiet spell, then look at everything new once
+        pending[key] = asyncio.create_task(check_later(client, channel, thread_ts))
+
+    @app.action(REVIEW_SUGGESTION)
+    async def on_review_suggestion(ack, body, client):
+        await ack()
+        v, user = json.loads(body["actions"][0]["value"]), body["user"]["id"]
+        note = f"<@{user}> is reviewing this: cards below."
+        await client.chat_update(
+            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
+            blocks=[body["message"]["blocks"][0], {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}],
+        )
+        await capture(client, v["c"], v["t"], mention_ts="")
+
+    @app.action(IGNORE_SUGGESTION)
+    async def on_ignore_suggestion(ack, body, client):
+        await ack()
+        v, user = json.loads(body["actions"][0]["value"]), body["user"]["id"]
+        await asyncio.to_thread(svc.not_a_change, v["c"], v["t"], user, v["s"])
+        note = f"<@{user}> marked this as not a change. I'll keep listening."
+        await client.chat_update(
+            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
+            blocks=[body["message"]["blocks"][0], {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}],
+        )
 
     return app

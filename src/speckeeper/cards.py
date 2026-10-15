@@ -2,10 +2,34 @@
 
 from __future__ import annotations
 
+import json
+
 from .models import Proposal, Requirement
 
 APPROVE, EDIT, DISMISS = "approve_proposal", "edit_proposal", "dismiss_proposal"
 APPROVE_ALL, REVIEW_EACH, DISMISS_ALL = "approve_group", "review_group", "dismiss_group"
+REVIEW_SUGGESTION, IGNORE_SUGGESTION = "review_suggestion", "ignore_suggestion"
+
+
+def _esc(text: str) -> str:
+    """Slack's three special characters, so model text can't post links or pings."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def suggestion_card(s, channel: str, thread_ts: str) -> list[dict]:
+    """Thread watch noticed a change. It only offers a capture; the capture still goes through approval."""
+    who = s.sources[0].label or "someone"
+    what = f"changes *{s.target}*" if s.kind == "change" else "agrees a new requirement"
+    value = json.dumps({"c": channel, "t": thread_ts, "r": s.target, "s": s.summary[:200]})
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f":bulb: Looks like this {what}: {_esc(s.summary)} ({_esc(who)})."}},
+        {"type": "actions", "elements": [
+            {"type": "button", "action_id": REVIEW_SUGGESTION, "style": "primary", "value": value,
+             "text": {"type": "plain_text", "text": "Review change" if s.kind == "change" else "Review"}},
+            {"type": "button", "action_id": IGNORE_SUGGESTION, "value": value, "text": {"type": "plain_text", "text": "Not a change"}},
+        ]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Nothing changes until someone approves. `@Spec Keeper mute` stops suggestions in this thread."}]},
+    ]
 
 
 def _gherkin(req: Requirement) -> str:

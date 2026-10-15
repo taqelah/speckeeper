@@ -44,7 +44,12 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
     from .agent import Asker, use_vertex
 
     use_vertex(s.gcp_project, s.gemini_location)
-    return SpecKeeper(store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues, Asker(store, s.flash_model, fallback=s.pro_model))
+    return SpecKeeper(
+        store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues,
+        Asker(store, s.flash_model, fallback=s.pro_model),
+        triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model),
+        min_confidence=s.watch_min_confidence,
+    )
 
 
 def lazy_drive_fetch():
@@ -68,7 +73,9 @@ def lazy_drive_fetch():
 def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_client=None, fetch_doc=None, wait: bool = False) -> FastAPI:
     s = s or Settings.from_env()
     svc = svc or build_service(s)
-    slack = build_slack_app(s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait)
+    slack = build_slack_app(
+        s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait, quiet=s.watch_quiet_seconds
+    )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
