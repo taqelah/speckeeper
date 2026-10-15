@@ -64,3 +64,12 @@ def test_copy_buttons_carry_the_test_inputs():
 def test_the_status_line_reads_well_on_a_clean_start():
     body = page().get("/").text
     assert "clean start: nothing approved yet" in body
+
+
+def test_a_just_started_instance_serves_the_page_not_an_empty_body(monkeypatch):
+    # A fresh Cloud Run instance's monotonic clock can read a few seconds; the first visitors still get the page.
+    import speckeeper.main as main
+
+    monkeypatch.setattr(main.time, "monotonic", lambda: 5.0)
+    res = page().get("/")
+    assert res.status_code == 200 and "Nobody told the tests." in res.text

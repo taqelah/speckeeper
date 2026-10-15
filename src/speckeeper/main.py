@@ -109,7 +109,8 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     @api.get("/", response_class=HTMLResponse)
     async def home():
         # The status line reads the store, so the page is rebuilt at most every 30 seconds.
-        if time.monotonic() - cached["at"] > 30:
+        # Build it on the first request too: on a just-started instance the monotonic clock can read under 30 s.
+        if not cached["page"] or time.monotonic() - cached["at"] > 30:
             cached.update(at=time.monotonic(), page=landing(s, await asyncio.to_thread(status_strip, svc)))
         return HTMLResponse(
             cached["page"],
