@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import time
 import logging
 import xml.etree.ElementTree as ET
 
@@ -19,7 +21,7 @@ from .extract import Generate, gemini_generate
 from .service import SpecKeeper
 from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
-from .web import WEB, landing
+from .web import WEB, landing, status_strip
 
 logging.basicConfig(level=logging.INFO)
 
@@ -88,11 +90,14 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
 
-    page = landing(s)
+    cached = {"at": 0.0, "page": ""}
 
     @api.get("/", response_class=HTMLResponse)
     async def home():
-        return HTMLResponse(page, headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin"})
+        # The status line reads the store, so the page is rebuilt at most every 30 seconds.
+        if time.monotonic() - cached["at"] > 30:
+            cached.update(at=time.monotonic(), page=landing(s, await asyncio.to_thread(status_strip, svc)))
+        return HTMLResponse(cached["page"], headers={"Cache-Control": "public, max-age=30", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin"})
 
     @api.get("/architecture.png")
     async def architecture():

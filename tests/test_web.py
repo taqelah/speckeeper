@@ -30,3 +30,27 @@ def test_buttons_appear_only_for_links_that_are_set():
     body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_video_url="https://youtu.be/v", contact_email="a@b.co").get("/").text
     assert "Join the demo Slack" in body and "Watch the demo" in body and "mailto:a@b.co" in body
     assert "javascript:" not in page(demo_slack_invite="javascript:alert(1)").get("/").text
+
+
+def test_the_status_line_shows_live_state_from_the_store():
+    from test_e2e import CI, LINK, junit, kickoff_approved
+
+    app = App()
+    kickoff_approved(app)
+    app.ci(junit(("AC-7-1@v1 shows the limit", True)))
+    body = TestClient(create_app(settings(), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True)).get("/").text
+    assert "Live on Cloud Run" in body and "PRD <b>v1.0.0</b>" in body and "<b>2</b> requirements" in body
+    assert "1 passing" in body and "not tested yet" in body and "last approval" in body
+
+
+def test_the_status_line_never_breaks_the_page():
+    app = App()
+    app.svc.store.requirements = lambda: (_ for _ in ()).throw(RuntimeError("Firestore down"))
+    body = TestClient(create_app(settings(), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True)).get("/").text
+    assert "Live on Cloud Run" in body and "Nobody told the tests." in body
+
+
+def test_copy_buttons_carry_the_test_inputs():
+    body = page(demo_notes_url="https://docs.google.com/document/d/NOTES/edit").get("/").text
+    assert 'data-copy="let&#x27;s cap uploads at 8 MB"' in body or "data-copy=\"let's cap uploads at 8 MB\"" in body
+    assert 'data-copy="https://docs.google.com/document/d/NOTES/edit"' in body and "Grounding and guardrails" in body and "How we kept it fast" in body

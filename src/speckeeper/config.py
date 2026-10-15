@@ -30,6 +30,7 @@ class Settings:
     demo_slack_invite: str = ""  # the landing page's "Join the demo Slack" button; hidden when empty
     demo_video_url: str = ""
     contact_email: str = ""
+    demo_notes_url: str = ""  # the kickoff notes link judges paste; gets a copy button on the landing page
     source_repo: str = "https://github.com/taqelah/speckeeper"
 
     @classmethod
@@ -58,5 +59,6 @@ class Settings:
             demo_slack_invite=env("DEMO_SLACK_INVITE", ""),
             demo_video_url=env("DEMO_VIDEO_URL", ""),
             contact_email=env("CONTACT_EMAIL", ""),
+            demo_notes_url=env("DEMO_NOTES_URL", ""),
             source_repo=env("SOURCE_REPO", "https://github.com/taqelah/speckeeper"),
         )
