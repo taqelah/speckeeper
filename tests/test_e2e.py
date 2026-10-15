@@ -552,3 +552,28 @@ def test_C_15_a_question_with_a_link_goes_to_the_agent_not_capture():
     app = App(asker=asker)
     app.mention(f"why did we decide 25 MB in {LINK}?")
     assert asker.questions and not any("Reading the meeting notes" in m["text"] for m in app.slack.posted("chat.postMessage"))
+
+
+def test_C_16_approve_shows_progress_before_the_issues_are_written():
+    app = App()
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    app.click("approve_group", app.button(card, "approve_group"), card)
+    progress, final = app.slack.posted("chat.update")[-2:]
+    assert "Approving" in progress["text"] and "actions" not in json.dumps([b["type"] for b in progress["blocks"]])
+    assert "PRD v1.0.0" in final["text"] and "Written to the PRD." in final["text"]
+
+
+def test_C_17_without_a_prd_doc_the_card_does_not_claim_one_was_written():
+    app = App()
+    app.svc.prd = None
+    kickoff_approved(app)
+    note = app.slack.posted("chat.update")[-1]["text"]
+    assert "PRD v1.0.0" in note and "Written to the PRD" not in note and "2 issues opened." in note
+
+
+def test_C_18_approving_a_card_from_before_a_restart_says_capture_again():
+    app = App()
+    message = {"ts": "300.1", "blocks": [{"type": "actions", "elements": []}]}
+    app.click("approve_proposal", "gone-id", message)
+    assert "before Spec Keeper restarted" in app.slack.posted("chat.update")[-1]["text"]

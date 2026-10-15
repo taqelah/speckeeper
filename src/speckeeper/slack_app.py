@@ -176,6 +176,12 @@ def build_slack_app(
     async def stale(client, body) -> None:
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}])
 
+    async def working(client, body, text: str) -> None:
+        """Swap a card's buttons for a progress line at once, so a second click can't land while issues are written."""
+        kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
+        kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f":hourglass_flowing_sand: {text}"}]})
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text, blocks=kept)
+
     def _group_title(body) -> str:
         first = body["message"]["blocks"][0]["text"]["text"]
         return first.split("*")[1] if first.count("*") >= 2 else "the meeting"
@@ -187,12 +193,13 @@ def build_slack_app(
         if not svc.store.proposals_in_group(gid):
             await stale(client, body)
             return
+        await working(client, body, f"Approving for <@{user}>…")
         done, version = await asyncio.to_thread(svc.approve_group, gid, user, body["user"].get("name", ""))
         if not done:
             return
         keys = ", ".join(p.requirement.key for p in done)
         issues = sum(1 for p in done if p.requirement.issue_number)
-        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}. Written to the PRD" + (f", {issues} issues opened." if issues else ".")
+        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}." + (" Written to the PRD." if svc.prd else "") + (f" {issues} issues opened." if issues else "")
         await client.chat_update(
             channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), done, note)
         )
@@ -230,24 +237,24 @@ def build_slack_app(
         if svc.store.get_proposal(pid) is None:
             await stale(client, body)
             return
+        await working(client, body, f"Approving for <@{user}>…")
         p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
         if p is None:
             return
         r = p.requirement
         if p.kind == "change":
-            stale = [a.key for a in r.acs if a.ci_status == "stale"]
+            outdated = [a.key for a in r.acs if a.ci_status == "stale"]
             note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, PRD v{version}."
             if r.issue_number:
                 note += f" Issue #{r.issue_number} updated."
-            if stale:
-                note += f" Stale until tests are updated to @v{r.version}: {', '.join(stale)}."
+            if outdated:
+                note += f" Stale until tests are updated to @v{r.version}: {', '.join(outdated)}."
             # Keep the diff on the card; swap the buttons for what happened.
             kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
             kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
             await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
             return
-        where = " and opened #" + str(r.issue_number) if r.issue_number else ""
-        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}. Added to the PRD{where}."
+        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}." + (" Added to the PRD." if svc.prd else "") + (f" Opened #{r.issue_number}." if r.issue_number else "")
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
 
     @app.action(DISMISS)
