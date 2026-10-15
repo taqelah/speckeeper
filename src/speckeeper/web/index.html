@@ -149,7 +149,11 @@
     <h2 id="how-h">How it works</h2>
     <figure class="diagram">
       <a href="/architecture.png"><img src="/architecture.png" width="1488" height="1080" alt="Cloud deployment. Slack, the meeting notes in Google Docs, GitHub Actions and a browser feed one Cloud Run service in a Google Cloud project. Inside it: capture with Gemini 3.1 Pro, thread watch with Gemini 3.8 Flash, the approval gate, CI verification, the ADK question agent and the PRD builder, behind guardrails. It uses Vertex AI, Firestore, Secret Manager and Cloud Logging, and writes the PRD in Google Docs and GitHub issues."></a>
-      <figcaption>Cloud deployment. Open the image for full size. <a href="/change-sequence.png" style="display: inline">See how one change travels through it, step by step</a>.</figcaption>
+      <figcaption>Cloud deployment. Open the image for full size.</figcaption>
+    </figure>
+    <figure class="diagram" id="sequence">
+      <a href="/change-sequence.png"><img src="/change-sequence.png" width="1600" height="1100" loading="lazy" alt="How a change travels, in 14 steps. 1, the team says in Slack: let's cap uploads at 8 MB. 2, Spec Keeper adds an eyes reaction. 3 and 4, Gemini Flash triages the thread and says it changes REQ-7, confidence 0.95. 5, a suggestion card appears. 6, someone clicks Review change. 7, Gemini Pro captures the cited messages. 8, a change card with the diff appears. 9, someone approves. 10, Firestore records REQ-7 v2 and PRD v1.1.0. 11, the PRD in Google Docs is rebuilt. 12, the GitHub issue is updated. 13, CI reports AC-7-1@v1 passed. 14, Spec Keeper reports those tests as stale, because they were written for v1."></a>
+      <figcaption>How one change travels: from a Slack message to a stale test. Solid arrows are requests, dashed arrows replies. Open the image for full size.</figcaption>
     </figure>
     <div class="grid">
       <div class="card"><strong>Nothing changes on its own</strong><p>Gemini only proposes. The PRD and issues change when a person clicks Approve, and every requirement cites where it was agreed.</p></div>
