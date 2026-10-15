@@ -176,6 +176,19 @@ def build_slack_app(
     async def stale(client, body) -> None:
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}])
 
+    def prd_link(text: str = "the PRD") -> str:
+        doc_id = getattr(svc.prd, "doc_id", "")
+        return f"<https://docs.google.com/document/d/{doc_id}/edit|{text}>" if doc_id else text
+
+    def issue_link(number: int) -> str:
+        repo = getattr(svc.issues, "repo", "")
+        return f"<https://github.com/{repo}/issues/{number}|#{number}>" if repo else f"#{number}"
+
+    def issues_link(count: int) -> str:
+        repo = getattr(svc.issues, "repo", "")
+        text = f"{count} issue" + ("s" if count != 1 else "")
+        return f"<https://github.com/{repo}/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|{text}>" if repo else text
+
     async def working(client, body, text: str) -> None:
         """Swap a card's buttons for a progress line at once, so a second click can't land while issues are written."""
         kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
@@ -199,7 +212,7 @@ def build_slack_app(
             return
         keys = ", ".join(p.requirement.key for p in done)
         issues = sum(1 for p in done if p.requirement.issue_number)
-        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}." + (" Written to the PRD." if svc.prd else "") + (f" {issues} issues opened." if issues else "")
+        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}." + (f" Written to {prd_link()}." if svc.prd else "") + (f" {issues_link(issues)} opened." if issues else "")
         await client.chat_update(
             channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), done, note)
         )
@@ -246,7 +259,7 @@ def build_slack_app(
             outdated = [a.key for a in r.acs if a.ci_status == "stale"]
             note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, PRD v{version}."
             if r.issue_number:
-                note += f" Issue #{r.issue_number} updated."
+                note += f" Issue {issue_link(r.issue_number)} updated."
             if outdated:
                 note += f" Stale until tests are updated to @v{r.version}: {', '.join(outdated)}."
             # Keep the diff on the card; swap the buttons for what happened.
@@ -254,7 +267,7 @@ def build_slack_app(
             kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
             await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
             return
-        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}." + (" Added to the PRD." if svc.prd else "") + (f" Opened #{r.issue_number}." if r.issue_number else "")
+        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}." + (f" Added to {prd_link()}." if svc.prd else "") + (f" Opened {issue_link(r.issue_number)}." if r.issue_number else "")
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
 
     @app.action(DISMISS)

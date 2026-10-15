@@ -577,3 +577,12 @@ def test_C_18_approving_a_card_from_before_a_restart_says_capture_again():
     message = {"ts": "300.1", "blocks": [{"type": "actions", "elements": []}]}
     app.click("approve_proposal", "gone-id", message)
     assert "before Spec Keeper restarted" in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_C_19_the_approval_note_links_the_prd_doc_and_the_issues():
+    app = App()
+    app.prd.doc_id, app.issues.repo = "PRDDOC", "acme/checkout"
+    kickoff_approved(app)
+    note = app.slack.posted("chat.update")[-1]["text"]
+    assert "<https://docs.google.com/document/d/PRDDOC/edit|the PRD>" in note
+    assert "<https://github.com/acme/checkout/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|2 issues>" in note
