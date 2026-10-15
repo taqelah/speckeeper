@@ -459,3 +459,13 @@ def test_C_07_unicode_and_emoji_in_messages_survive_capture():
     app = App(gemini, thread=thread)
     app.mention("capture this", ts="400.2", thread_ts="400.1")
     assert "Reçus jusqu'à 25 Mo 🚀" in gemini.prompts[0]
+
+
+def test_C_08_capturing_notes_again_while_requirements_wait_reposts_a_working_card():
+    app = App(Gemini(KICKOFF))
+    app.mention(f"capture {LINK}")
+    app.mention(f"capture {LINK}", ts="102.1")  # the first card is lost or its buttons dead
+    card = app.last_card()
+    assert "captured before; 2 still waiting" in app.slack.posted("chat.update")[-1]["text"]
+    app.click("approve_group", app.button(card, "approve_group"), card)
+    assert app.issues_created == ["REQ-7", "REQ-8"]  # approved once, from the fresh card

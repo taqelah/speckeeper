@@ -107,11 +107,19 @@ def build_slack_app(
             await client.chat_update(channel=channel, ts=working["ts"], text="Reading meeting notes isn't set up on this server yet.")
             return
         if seen := svc.already_captured(doc_id):
-            _, group = seen
+            gid, group = seen
             approved = [p.requirement.key for p in group if p.status == "approved"]
-            pending = sum(1 for p in group if p.status == "pending")
-            note = f"These notes are already captured: {len(approved)} approved ({', '.join(approved) or 'none yet'})"
-            note += f", {pending} still waiting on their cards above." if pending else f". The PRD is at v{svc.prd_version}."
+            pending = [p for p in group if p.status == "pending"]
+            if pending:
+                # The old card may be lost in the channel or its buttons dead: post a fresh one here
+                # for whatever is still waiting, instead of pointing at it.
+                title = next((s.label.split(", ")[0] for p in pending for s in p.requirement.sources if s.kind == "meeting"), "the meeting")
+                note = f"These notes were captured before; {len(pending)} still waiting for approval" + (f" ({len(approved)} already approved: {', '.join(approved)})" if approved else "") + "."
+                await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=baseline_card(gid, title, pending, []))
+                for p in pending:
+                    svc.set_card(p.id, working["ts"])
+                return
+            note = f"These notes are already captured: {len(approved)} approved ({', '.join(approved)}). The PRD is at v{svc.prd_version}."
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
         try:
