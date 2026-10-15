@@ -182,8 +182,20 @@ and a reference answer. A Gemini judge scores every answer. Latest results, 13 q
 | Final response match v2 | Answer agrees with the reference | 39 / 39 | 1.00 |
 | Hallucinations v1 | Every claim backed by a tool result | 39 / 39 | 0.995 |
 
-It uses real Gemini, so it is run by hand, not in CI. `tests/test_evals.py` checks, without Gemini,
-that every case can be answered from the fixture.
+It uses real Gemini, so it is run by hand, not in CI, and rarely: never in bulk, and never with
+adversarial cases (see the limits in the results file below). `tests/test_evals.py` checks, without
+Gemini, that every case can be answered from the fixture.
+
+**Capture and thread watch,** from the runs made during development
+([evals/development-results.md](evals/development-results.md)), on small hand-written cases:
+
+| | Result |
+|---|---|
+| Capture precision (meeting notes → requirements) | 0.95 (20 / 21) |
+| Capture recall | 1.00 (20 / 20); open questions captured: 0 / 8 |
+| Thread watch: changes and new requirements caught | 10 / 10 |
+| Thread watch: false alarms | 0 / 16 |
+| Prompt-injection messages blocked | 3 / 3 |
 
 ## For contributors
 
