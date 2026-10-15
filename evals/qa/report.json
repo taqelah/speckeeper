@@ -1,0 +1,48 @@
+{
+  "eval_set": "speckeeper_qa",
+  "cases": 13,
+  "runs_per_case": 3,
+  "agent_model": "gemini-3.8-flash",
+  "judge_model": "gemini-3.8-flash",
+  "metrics": {
+    "final_response_match_v2": {
+      "average": 1.0,
+      "passed": 39,
+      "total": 39,
+      "threshold": 0.7
+    },
+    "hallucinations_v1": {
+      "average": 0.995,
+      "passed": 39,
+      "total": 39,
+      "threshold": 0.8
+    },
+    "tool_trajectory_avg_score": {
+      "average": 1.0,
+      "passed": 39,
+      "total": 39,
+      "threshold": 0.8
+    }
+  },
+  "measured": {
+    "inference_call_count_v1": {
+      "average": 2.897,
+      "runs": 39
+    },
+    "invocation_duration_v1": {
+      "average": 41.968,
+      "runs": 39
+    },
+    "token_usage_v1": {
+      "average": 3433.359,
+      "runs": 39
+    },
+    "tool_call_count_v1": {
+      "average": 2.333,
+      "runs": 39
+    }
+  },
+  "seconds": 1291,
+  "generated_at": "2026-10-15T12:14:25+00:00",
+  "note": "Two invocations of run.py on the same code: --runs 1, then --runs 2."
+}

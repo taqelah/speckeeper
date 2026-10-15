@@ -41,6 +41,7 @@ uv run pytest tests/test_e2e.py -k N_0    # a subset
 uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080 --reload --reload-exclude ".data/*"
 cloudflared tunnel --url http://localhost:8080        # public URL for Slack and GitHub while local
 uv run --env-file .env adk web agents                 # ADK web UI for the question agent
+uv run --env-file .env --group eval python -m evals.qa.run   # ADK eval of the question agent (real Gemini, ~10 min)
 uv run --env-file .env python -m speckeeper.backfill  # issues for requirements approved before GitHub was set up (server stopped)
 GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 ```
@@ -63,6 +64,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/config.py` | Settings from the environment |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
 | `evals/notes/` | Meeting notes fixtures |
+| `evals/qa/` | ADK eval of the question agent: `fixture.py` (a fixed project), `cases.py` (questions, expected tool calls, reference answers), `run.py` (AgentEvaluator; writes `report.json`) |
 
 ## Data model
 
@@ -108,6 +110,10 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   response so tests can assert on what was posted.
 - Test ids (`E2E-`, `N-`, `C-`) match the test plan in the team's build plan doc. Add a negative and
   a corner case with every feature.
+- **ADK eval** (`evals/qa/`) asks the question agent 13 questions against a fixed in-memory project
+  and scores tool trajectory (IN_ORDER), answer match and hallucinations with a Gemini judge. It uses
+  real Gemini, so it is run by hand, not in CI; `tests/test_evals.py` checks without Gemini that every
+  case's expected tools return the facts its reference answer states. Change a case and the fixture together.
 - What good tests here assert: what reaches Gemini (citations, approved requirements, no extra
   text), what is written and how often (issues, PRD, versions), and what the user sees in Slack.
 
