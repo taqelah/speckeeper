@@ -199,6 +199,9 @@ Gemini, that every case can be answered from the fixture.
 | Thread watch: false alarms | 0 / 16 |
 | Prompt-injection messages blocked | 3 / 3 |
 
+**Cost:** a meeting capture costs about $0.05 in Gemini, a thread-watch check $0.001, and one full demo
+about $0.09 ([evals/cost.md](evals/cost.md), from the token counts in Cloud Logging).
+
 ## For contributors
 
 [AGENTS.md](AGENTS.md) has the rules, code map, data model, flows, testing approach and the pitfalls
