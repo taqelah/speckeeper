@@ -102,3 +102,11 @@ def test_the_check_steps_do_the_checking_themselves():
     assert state["checked"]["requirements"] == [] and state["dropped"] == 1
     state = engine._call(engine.watch_runner, triage_prompt([], MSGS[:1], [REQ7]), {"new_ts": ["1.1"], "approved_keys": ["REQ-7"], "min_confidence": 0.8})
     assert state["suggest"] is False and state["triage"]["confidence"] == 0.5
+
+
+def test_scope_decisions_are_ruled_out_in_the_capture_instruction():
+    # "Guest checkout moves to v2.1" was captured as a requirement on Oct 16; the rule now says it isn't one.
+    pro = llm("pro", extraction())
+    AdkEngine(pro, llm("flash")).capture(MSGS, [REQ7])
+    system = str(pro.requests[0].config.system_instruction)
+    assert "scope decisions, not requirements" in system and "guest checkout moves to v2.1" in system
