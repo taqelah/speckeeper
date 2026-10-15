@@ -144,7 +144,14 @@ def build_slack_app(
                 for p in pending:
                     svc.set_card(p.id, working["ts"])
                 return
-            note = f"These notes haven't changed since they were captured: {len(approved)} approved ({', '.join(approved) or 'none'}). The PRD is at v{svc.prd_version or '–'}."
+            dismissed = sum(1 for p in result.proposals if p.status == "dismissed")
+            if not result.proposals:
+                note = "These notes haven't changed, and they had no agreed requirements when I read them."
+            else:
+                note = f"These notes haven't changed since they were captured: {len(approved)} approved ({', '.join(approved) or 'none'})"
+                note += f", {dismissed} dismissed." if dismissed else "."
+                if svc.prd_version:
+                    note += f" The PRD is at {prd_link('v' + svc.prd_version)}."
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
 

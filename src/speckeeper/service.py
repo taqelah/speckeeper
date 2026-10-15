@@ -120,8 +120,11 @@ class SpecKeeper:
         title, text = fetch(doc_id)
         digest = fingerprint(text)
         before = self.store.get_meta(f"doc:{doc_id}")
+        earlier = self.store.proposals_in_group(before) if before else []
+        if earlier and all(p.status == "dismissed" for p in earlier):
+            before = None  # everything was dismissed: asking again means start over
         if before and self.store.get_meta(f"dochash:{doc_id}") == digest:
-            group = [p for p in self.store.proposals_in_group(before) if p.status != "dismissed"]
+            group = self.store.proposals_in_group(before)
             return NotesCapture("unchanged", before, title, group, [], self.store.get_meta(f"docat:{doc_id}"))
         group_id = "g" + uuid.uuid4().hex[:11]
         proposals, questions = self.capture(channel, thread_ts, passages(doc_id, title, text), group_id)

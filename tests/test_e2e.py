@@ -586,3 +586,30 @@ def test_C_19_the_approval_note_links_the_prd_doc_and_the_issues():
     note = app.slack.posted("chat.update")[-1]["text"]
     assert "<https://docs.google.com/document/d/PRDDOC/edit|the PRD>" in note
     assert "<https://github.com/acme/checkout/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|2 issues>" in note
+
+
+def test_C_20_notes_dismissed_in_full_are_read_again_when_asked():
+    gemini = Gemini(KICKOFF, KICKOFF)
+    app = App(gemini)
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    app.click("dismiss_group", app.button(card, "dismiss_group"), card)
+    app.mention(f"capture {LINK}", ts="102.1")
+    assert len(gemini.prompts) == 2 and "Approve all as v1.0.0" in json.dumps(app.last_card()["blocks"])
+    card = app.last_card()
+    app.click("approve_group", app.button(card, "approve_group"), card)
+    assert app.issues_created == ["REQ-7", "REQ-8"]
+
+
+def test_C_21_unchanged_notes_report_approved_and_dismissed_and_link_the_prd():
+    app = App(Gemini(KICKOFF))
+    app.prd.doc_id = "PRDDOC"
+    app.mention(f"capture {LINK}")
+    card = app.last_card()
+    first = app.svc.store.proposals_in_group(app.button(card, "approve_group"))
+    app.click("dismiss_proposal", first[1].id, {"ts": "200.1", "blocks": []})
+    app.click("approve_proposal", first[0].id, {"ts": "200.2", "blocks": []})
+    app.mention(f"capture {LINK}", ts="102.1")
+    note = app.slack.posted("chat.update")[-1]["text"]
+    assert "1 approved (REQ-7), 1 dismissed." in note
+    assert f"<https://docs.google.com/document/d/PRDDOC/edit|v{app.svc.prd_version}>" in note
