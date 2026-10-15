@@ -36,7 +36,7 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
     if s.prd_doc_id:
         from .integrations import GoogleDocsPRD
 
-        prd = GoogleDocsPRD(s.prd_doc_id)
+        prd = GoogleDocsPRD(s.prd_doc_id, s.github_repo)
     if s.github_token and s.github_repo:
         from .integrations import GitHubIssues
 

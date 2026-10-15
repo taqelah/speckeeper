@@ -7,6 +7,8 @@ whole loop can be tested with fakes.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -18,6 +20,8 @@ from .extract import Generate, extract
 from .models import Proposal, Requirement, Source
 from .notes import FetchDoc, passages
 from .store import Store
+
+log = logging.getLogger(__name__)
 
 BASELINE = "1.0.0"
 
@@ -49,8 +53,7 @@ def fingerprint(text: str) -> str:
 
 
 class PRD(Protocol):
-    def append(self, req: Requirement) -> None: ...
-    def note(self, text: str) -> None: ...
+    def publish(self, reqs: list[Requirement], releases: list[dict], version: str, now: str) -> None: ...
 
 
 class Issues(Protocol):
@@ -177,9 +180,27 @@ class SpecKeeper:
             major, minor, _ = (int(x) for x in current.split("."))
             version = f"{major}.{minor + 1}.0"
         self.store.set_meta("prd_version", version)
-        if self.prd:
-            self.prd.note(f"v{version} · {what} · approved by {user}")
+        releases = self.releases
+        releases.append({"version": version, "what": what, "by": user, "at": _now()})
+        self.store.set_meta("releases", json.dumps(releases))
+        self.publish_prd()
         return version
+
+    @property
+    def releases(self) -> list[dict]:
+        return json.loads(self.store.get_meta("releases", "") or "[]")
+
+    def publish_prd(self) -> bool:
+        """Rebuild the PRD doc from the store. A failure is logged, not raised: the approval stands and
+        the next approval or CI run rebuilds the doc in full anyway."""
+        if not self.prd:
+            return False
+        try:
+            self.prd.publish(self.store.requirements(), self.releases, self.prd_version, _now())
+            return True
+        except Exception:
+            log.exception("Couldn't update the PRD doc")
+            return False
 
     def approve_group(self, group_id: str, user: str, user_name: str = "") -> tuple[list[Proposal], str]:
         """Approve every pending proposal from one meeting in one go: the PRD's baseline."""
@@ -216,8 +237,6 @@ class SpecKeeper:
         req.key, req.status = f"REQ-{n}", "approved"
         for i, ac in enumerate(req.acs, 1):
             ac.key = f"AC-{n}-{i}"
-        if self.prd:
-            self.prd.append(req)
         if self.issues:
             req.issue_number = self.issues.create(req)
         self.store.save_requirement(req)
@@ -230,8 +249,6 @@ class SpecKeeper:
         if old is None:
             return None
         req, stale = apply_change(old, p.requirement)
-        if self.prd:
-            self.prd.append(req)
         if self.issues and req.issue_number:
             self.issues.update(req.issue_number, req)
             note = f"Changed to v{req.version} after approval in Slack: {req.title}."
@@ -264,4 +281,6 @@ class SpecKeeper:
             if self.issues and req.issue_number:
                 self.issues.comment(req.issue_number, text)
             out.append((req, text))
+        if changed:
+            self.publish_prd()
         return out, unmapped

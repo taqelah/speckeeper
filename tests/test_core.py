@@ -32,13 +32,14 @@ EXTRACTION = {
 
 class FakePRD:
     def __init__(self):
-        self.appended, self.notes = [], []
+        self.appended, self.notes, self.pages = [], [], []
 
-    def append(self, req):
-        self.appended.append(req.key)
+    def publish(self, reqs, releases, version, now):
+        from speckeeper.prd import render
 
-    def note(self, text):
-        self.notes.append(text)
+        self.appended = [r.key for r in reqs if r.status == "approved"]
+        self.notes = [f"v{x['version']} · {x['what']} · approved by {x['by']}" for x in releases]
+        self.pages.append(render("Checkout v2", reqs, releases, version, "acme/checkout", now))
 
 
 class FakeIssues:

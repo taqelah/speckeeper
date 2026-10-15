@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
 from .models import Requirement
+from .prd import render, source_parts
 
 
 def _gherkin_block(req: Requirement) -> str:
@@ -18,56 +21,29 @@ def _gherkin_block(req: Requirement) -> str:
 
 def _sources_line(req: Requirement, markdown: bool = False) -> str:
     """One citation per meeting (with its times) or Slack message, never the same one twice."""
-    meetings: dict[str, tuple[str, list[str]]] = {}
-    others: list[str] = []
-    for s in req.sources:
-        if s.kind == "meeting":
-            title, _, time = s.label.partition(", ")
-            link, times = meetings.setdefault(title, (s.permalink, []))
-            if time and time not in times:
-                times.append(time)
-        else:
-            name = s.label or f"{s.user} {s.ts}"
-            o = f"[{name}]({s.permalink})" if markdown and s.permalink else name
-            if o not in others:
-                others.append(o)
-    parts = []
-    for title, (link, times) in meetings.items():
-        name = f"[{title}]({link})" if markdown and link else title
-        parts.append(name + (f" ({', '.join(sorted(times))})" if times else ""))
-    return "Source: " + ", ".join(parts + others)
+    parts = [(f"[{label}]({link})" if markdown and link else label) + times for label, times, link in source_parts(req)]
+    return "Source: " + ", ".join(parts)
 
 
 class GoogleDocsPRD:
-    """Appends one section per approved requirement. Appending (not editing in place) is deliberate:
-    the Docs API edits by character index, and appends cannot land in the wrong place."""
+    """Rebuilds the whole PRD doc from the store by importing HTML into it (same doc, same link)."""
 
-    def __init__(self, doc_id: str) -> None:
+    def __init__(self, doc_id: str, repo: str = "") -> None:
         import google.auth
         from googleapiclient.discovery import build
 
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/documents"])
-        self.docs = build("docs", "v1", credentials=creds, cache_discovery=False)
-        self.doc_id = doc_id
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive"])
+        self.drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+        self.doc_id, self.repo = doc_id, repo
 
-    def _end(self) -> int:
-        doc = self.docs.documents().get(documentId=self.doc_id).execute()
-        return doc["body"]["content"][-1]["endIndex"] - 1
+    def publish(self, reqs: list[Requirement], releases: list[dict], version: str, now: str) -> None:
+        from googleapiclient.http import MediaInMemoryUpload
 
-    def note(self, text: str) -> None:
-        """A changelog line at the end of the PRD."""
-        self.docs.documents().batchUpdate(documentId=self.doc_id, body={"requests": [{"insertText": {"location": {"index": self._end()}, "text": text + "\n"}}]}).execute()
-
-    def append(self, req: Requirement) -> None:
-        heading = f"{req.key} {req.title}" + (f" (v{req.version})" if req.version > 1 else "") + "\n"
-        body = f"{_gherkin_block(req)}\n{_sources_line(req)}\n\n"
-        end = self._end()
-        requests = [
-            {"insertText": {"location": {"index": end}, "text": heading + body}},
-            {"updateParagraphStyle": {"range": {"startIndex": end, "endIndex": end + len(heading)}, "paragraphStyle": {"namedStyleType": "HEADING_2"}, "fields": "namedStyleType"}},
-            {"updateTextStyle": {"range": {"startIndex": end + len(heading), "endIndex": end + len(heading) + len(_gherkin_block(req))}, "textStyle": {"weightedFontFamily": {"fontFamily": "Roboto Mono"}}, "fields": "weightedFontFamily"}},
-        ]
-        self.docs.documents().batchUpdate(documentId=self.doc_id, body={"requests": requests}).execute()
+        name = self.drive.files().get(fileId=self.doc_id, fields="name").execute()["name"]
+        title = re.sub(r"\s*[·\-|:]\s*PRD\s*$", "", name) or name  # "Checkout v2 · PRD" -> "Checkout v2"
+        page = render(title, reqs, releases, version, self.repo, now)
+        media = MediaInMemoryUpload(page.encode(), mimetype="text/html", resumable=False)
+        self.drive.files().update(fileId=self.doc_id, media_body=media).execute()
 
 
 class GitHubIssues:
