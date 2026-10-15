@@ -44,6 +44,8 @@ Rules:
 - Only requirements the team agreed on. Proposals nobody agreed to, and anything left for later, are open questions.
   A decision stated as settled counts even with no reply ("let's cap uploads at 10 MB", "we'll go with X");
   when the same thing is settled more than once, the latest statement is the decision.
+- Decisions to move, defer or drop a feature ("guest checkout moves to v2.1", "we'll cut X from this release")
+  are scope decisions, not requirements: list them as open questions, never as requirements.
 - Each requirement once, even when the notes repeat it (details, decisions, summary); cite every passage it appears in.
 - Each requirement gets 1 to 4 acceptance criteria in Given / When / Then form, testable as written,
   using the exact numbers from the discussion.
