@@ -999,6 +999,25 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-agentplatform"
+version = "2.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core" },
+    { name = "google-auth" },
+    { name = "google-genai" },
+    { name = "packaging" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d7/fb/3b4053a5138d2a58384afa389366e239ce1af3bb1f6e87b8e5912420739d/google_cloud_agentplatform-2.5.0.tar.gz", hash = "sha256:5933ecaf02cbeac9517312ed9165ae43996a495e75fb58f7849ba594f9399ada", size = 524654, upload-time = "2026-10-14T03:46:53.726Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/e4/a3d50048236f600b878f72f23f4577e67ff387b13c24a78ed17f22cdd2d1/google_cloud_agentplatform-2.5.0-py3-none-any.whl", hash = "sha256:979540a7a6725e2bd69fdea630e71717b8fa1afdf48a9878d8d2901ccb1fd361", size = 583055, upload-time = "2026-10-14T03:46:51.874Z" },
+]
+
+[[package]]
 name = "google-cloud-aiplatform"
 version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3252,6 +3271,7 @@ dependencies = [
     { name = "google-adk", extra = ["bigquery-analytics"] },
     { name = "google-api-python-client" },
     { name = "google-auth" },
+    { name = "google-cloud-agentplatform" },
     { name = "google-cloud-firestore" },
     { name = "google-genai" },
     { name = "httpx" },
@@ -3280,6 +3300,7 @@ requires-dist = [
     { name = "google-adk", extras = ["bigquery-analytics"], specifier = ">=2.12.0" },
     { name = "google-api-python-client", specifier = ">=2.201.0" },
     { name = "google-auth", specifier = ">=2.62.0" },
+    { name = "google-cloud-agentplatform", specifier = ">=2.2" },
     { name = "google-cloud-firestore", specifier = ">=2.34.1" },
     { name = "google-genai", specifier = ">=2.30.1" },
     { name = "httpx", specifier = ">=0.28.1" },

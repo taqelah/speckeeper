@@ -120,6 +120,10 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   model call and counts every call's tokens, through ADK callbacks.
 - **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
   question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+- **Agent Engine.** The "why?" agent runs on Vertex AI Agent Engine (`deploy_agent.sh`) with managed sessions,
+  called from Cloud Run (`AGENT_ENGINE`); the local agent answers if the engine fails. Its Memory Bank
+  remembers which version of each requirement a person last saw (no message text), so an answer can start
+  with what changed since they last asked.
 - **ADK pipelines.** Capture and thread watch run as ADK multi-agent pipelines: a Flash triage agent and a
   gate step; a Pro capture agent and a citation-check step. A person's Review click sits between them.
 - **Analytics.** Each question's events (Gemini calls with tokens and latency, tool calls) stream to
@@ -167,7 +171,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-156 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+169 tests, about three seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
