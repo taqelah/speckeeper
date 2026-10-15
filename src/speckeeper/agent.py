@@ -120,17 +120,17 @@ def rate_limited(e: Exception) -> bool:
     return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)
 
 
-def _count(response, model: str) -> None:
+def _count(response, model: str, label: str = "agent") -> None:
     """Every agent model call counts against the daily budget, like capture and triage do."""
     u = response.usage_metadata if response else None
     if u:
         logging.getLogger("speckeeper.usage").info(
-            "agent model=%s input=%s output=%s thinking=%s", model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
+            "%s model=%s input=%s output=%s thinking=%s", label, model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
         )
         budget.spend((u.prompt_token_count or 0) + (u.candidates_token_count or 0) + (u.thoughts_token_count or 0))
 
 
-def guardrails(model: str, fallback: str | BaseLlm = "") -> dict:
+def guardrails(model: str, fallback: str | BaseLlm = "", label: str = "agent") -> dict:
     """The agent's guardrails as ADK callbacks, so they hold wherever the agent runs: Slack, `adk web`
     and the eval.
 
@@ -158,12 +158,12 @@ def guardrails(model: str, fallback: str | BaseLlm = "") -> dict:
         budget.spend_check()  # raises BudgetExceeded, which Slack turns into the "budget used up" reply
         if callback_context.state.get(ON_FALLBACK):
             response = await ask_fallback(llm_request)
-            _count(response, fallback_llm().model)  # ADK skips after_model for a response returned here
+            _count(response, fallback_llm().model, label)  # ADK skips after_model for a response returned here
             return response
         return None
 
     def after_model(callback_context, llm_response):
-        _count(llm_response, model)
+        _count(llm_response, model, label)
 
     async def on_model_error(callback_context, llm_request, error):
         if not fallback or not rate_limited(error) or callback_context.state.get(ON_FALLBACK):

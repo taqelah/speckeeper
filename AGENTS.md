@@ -62,6 +62,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
+| `src/speckeeper/pipelines.py` | Capture and thread watch as ADK multi-agent pipelines when `CAPTURE_ENGINE=adk`: `SequentialAgent`[Flash `triage_agent` → `triage_gate`] and [Pro `capture_agent` → `citation_check`], with the guardrail callbacks. Default `direct` keeps the plain calls in `extract.py`; both share the prompts, schemas and checks |
 | `src/speckeeper/analytics.py` | ADK's BigQuery agent analytics plugin when `ANALYTICS_DATASET` is set (`deploy.sh` sets `speckeeper_analytics`); `redact()` keeps counts and names, never text. Queries in `analytics/queries.sql` |
 | `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
@@ -112,6 +113,8 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   response so tests can assert on what was posted.
 - Test ids (`E2E-`, `N-`, `C-`) match the test plan in the team's build plan doc. Add a negative and
   a corner case with every feature.
+- **Both engines:** `pytest --engine=adk` runs every test with capture and thread watch going through the ADK
+  pipelines (`tests/conftest.py` puts the tests' fake Gemini behind ADK's model interface); CI runs both.
 - **ADK eval** (`evals/qa/`) asks the question agent 13 questions against a fixed in-memory project
   and scores tool trajectory (IN_ORDER), answer match and hallucinations with a Gemini judge. It uses
   real Gemini, so it is run by hand, not in CI; `tests/test_evals.py` checks without Gemini that every

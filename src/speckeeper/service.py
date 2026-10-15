@@ -111,6 +111,7 @@ class SpecKeeper:
         asker=None,
         triage_generate: Generate | None = None,
         min_confidence: float = 0.8,
+        engine=None,
     ) -> None:
         self.store = store
         self.generate = generate
@@ -119,10 +120,11 @@ class SpecKeeper:
         self.prd = prd
         self.issues = issues
         self.asker = asker  # the ADK agent that answers questions (agent.Asker)
+        self.engine = engine  # pipelines.AdkEngine (CAPTURE_ENGINE=adk), or None for direct Gemini calls
 
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
-        reqs, questions = extract(messages, self.generate, approved)
+        reqs, questions = self.engine.capture(messages, approved) if self.engine else extract(messages, self.generate, approved)
         proposals = []
         now = _now()
         for seq, (req, changes) in enumerate(reqs):
@@ -182,7 +184,10 @@ class SpecKeeper:
         state["checked"] = new[-1].ts  # claim them first: a retry or a second instance won't triage them again
         self._save_watch(channel, thread_ts, state)
         approved = [r for r in self.store.requirements() if r.status == "approved"]
-        found = triage(earlier, new, self.triage_generate, approved, self.min_confidence)
+        if self.engine:
+            found = self.engine.triage(earlier, new, approved, self.min_confidence)
+        else:
+            found = triage(earlier, new, self.triage_generate, approved, self.min_confidence)
         if found is None:
             return None
         # The same change means the same requirement and the same numbers: 10 → 5 MB once, but 10 → 8 MB is new.
