@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from defusedxml import DefusedXmlException
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
@@ -18,6 +19,7 @@ from .extract import Generate, gemini_generate
 from .service import SpecKeeper
 from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
+from .web import WEB, landing
 
 logging.basicConfig(level=logging.INFO)
 
@@ -85,6 +87,20 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
+
+    page = landing(s)
+
+    @api.get("/", response_class=HTMLResponse)
+    async def home():
+        return HTMLResponse(page, headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin"})
+
+    @api.get("/architecture.png")
+    async def architecture():
+        return FileResponse(WEB / "architecture.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+    @api.get("/icon.png")
+    async def icon():
+        return FileResponse(WEB / "icon.png", media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
     @api.get("/health")
     @api.get("/healthz")  # Cloud Run's front end reserves /healthz, so on Cloud Run use /health
