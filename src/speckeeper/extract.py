@@ -47,6 +47,7 @@ Rules:
 - If a requirement changes, replaces or contradicts one of the approved requirements below (a new limit,
   a different behaviour for the same thing), set `changes` to that requirement's key and write the
   requirement as it should now read, in full. A requirement about something new leaves `changes` empty.
+- Leave out requirements that are already approved below and unchanged: return only what is new or different.
 
 Approved requirements (key | requirement | criteria):
 {approved}

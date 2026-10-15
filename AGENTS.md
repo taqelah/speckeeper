@@ -81,7 +81,10 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 ## Main flows
 
 1. **Meeting:** `@Spec Keeper capture <notes link>` → read the doc → extract → one baseline card →
-   Approve all (or one by one) → REQ keys, issues, PRD sections, PRD v1.0.0.
+   Approve all (or one by one) → REQ keys, issues, PRD sections, PRD v1.0.0. The notes are
+   fingerprinted: capturing the same text again calls no model (and re-posts a card for anything
+   still waiting); capturing edited notes reads them against the approved requirements and returns
+   only what's new (approval cards) or changed (change cards).
 2. **Thread:** `@Spec Keeper capture this` → read the thread with names and permalinks → extract
    with the approved requirements in the prompt → approval card for new items, change card for
    changes → Approve → new requirement, or the next version of the existing one.

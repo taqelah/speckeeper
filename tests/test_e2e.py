@@ -268,11 +268,13 @@ def test_E2E_05_review_one_by_one_posts_a_card_per_requirement():
 
 
 def test_E2E_06_capturing_the_same_notes_again_files_nothing_new():
-    app = App(Gemini(KICKOFF, KICKOFF))
+    gemini = Gemini(KICKOFF)
+    app = App(gemini)
     kickoff_approved(app)
     app.mention(f"capture {LINK}", ts="101.1")
-    assert "already captured: 2 approved (REQ-7, REQ-8)" in app.slack.posted("chat.update")[-1]["text"]
+    assert "haven't changed since they were captured: 2 approved (REQ-7, REQ-8)" in app.slack.posted("chat.update")[-1]["text"]
     assert len(app.svc.store.requirements()) == 2
+    assert len(gemini.prompts) == 1  # unchanged notes: no second Gemini call
 
 
 def test_E2E_07_a_thread_that_changes_REQ_7_becomes_v2_not_a_new_requirement():
@@ -466,6 +468,64 @@ def test_C_08_capturing_notes_again_while_requirements_wait_reposts_a_working_ca
     app.mention(f"capture {LINK}")
     app.mention(f"capture {LINK}", ts="102.1")  # the first card is lost or its buttons dead
     card = app.last_card()
-    assert "captured before; 2 still waiting" in app.slack.posted("chat.update")[-1]["text"]
+    assert "haven't changed since they were captured; 2 still waiting" in app.slack.posted("chat.update")[-1]["text"]
     app.click("approve_group", app.button(card, "approve_group"), card)
     assert app.issues_created == ["REQ-7", "REQ-8"]  # approved once, from the fresh card
+
+
+class EditableNotes:
+    """A notes doc someone edits between captures."""
+
+    def __init__(self, text=NOTES):
+        self.text = text
+
+    def __call__(self, doc_id):
+        return "Checkout v2 kickoff", self.text
+
+
+def test_C_09_edited_notes_that_change_a_limit_give_a_change_card():
+    notes = EditableNotes()
+    change = {"requirements": [{"title": "Receipt uploads are limited to 20 MB", "acceptance_criteria": [{"given": "a 25 MB file", "when": "uploaded", "then": "show 'File exceeds 20 MB'"}], "source_ts": ["__limit__"], "changes": "REQ-7"}], "open_questions": []}
+    gemini = Gemini(KICKOFF, change)
+    app = App(gemini, fetch=notes)
+    kickoff_approved(app)
+    notes.text = NOTES.replace("25 MB", "20 MB")
+    app.mention(f"capture {LINK}", ts="101.1")
+    assert "REQ-7 | Receipt uploads are limited to 25 MB" in gemini.prompts[1]  # read against what's approved
+    summary = [u["text"] for u in app.slack.posted("chat.update")][-1]
+    assert "The notes were edited since" in summary and "a change to REQ-7" in summary
+    card = json.dumps(app.slack.posted("chat.postMessage")[-1]["blocks"])
+    assert "Change to REQ-7" in card and "20 MB" in card
+
+
+def test_C_10_edited_notes_with_a_new_decision_give_one_new_card():
+    notes = EditableNotes()
+    added = {"requirements": [{"title": "Receipts can be uploaded as HEIC photos", "acceptance_criteria": [{"given": "a HEIC photo", "when": "uploaded", "then": "it is accepted"}], "source_ts": ["__scan__"]}], "open_questions": []}
+    app = App(Gemini(KICKOFF, added), fetch=notes)
+    kickoff_approved(app)
+    notes.text = NOTES + "* HEIC photos: agreed to accept HEIC receipts. (00:41:00)\n"
+    before = len(app.slack.posted("chat.postMessage"))
+    app.mention(f"capture {LINK}", ts="101.1")
+    assert "1 new requirement" in app.slack.posted("chat.update")[-1]["text"]
+    cards = app.slack.posted("chat.postMessage")[before + 1:]
+    assert len(cards) == 1 and "HEIC" in json.dumps(cards[0]["blocks"])
+
+
+def test_C_11_edited_notes_where_gemini_repeats_an_approved_requirement_file_nothing():
+    notes = EditableNotes()
+    app = App(Gemini(KICKOFF, KICKOFF), fetch=notes)  # second reply repeats the kickoff as if new
+    kickoff_approved(app)
+    notes.text = NOTES + "* Typo fixes only.\n"
+    app.mention(f"capture {LINK}", ts="101.1")
+    assert "nothing new or different was agreed" in app.slack.posted("chat.update")[-1]["text"]
+    assert len(app.svc.store.requirements()) == 2 and app.issues_created == ["REQ-7", "REQ-8"]
+
+
+def test_C_12_whitespace_only_edits_count_as_unchanged():
+    notes = EditableNotes()
+    gemini = Gemini(KICKOFF)
+    app = App(gemini, fetch=notes)
+    kickoff_approved(app)
+    notes.text = NOTES.replace("\n", "   \n") + "\n\n"
+    app.mention(f"capture {LINK}", ts="101.1")
+    assert "haven't changed" in app.slack.posted("chat.update")[-1]["text"] and len(gemini.prompts) == 1

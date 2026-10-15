@@ -6,9 +6,12 @@ whole loop can be tested with fakes.
 
 from __future__ import annotations
 
+import hashlib
+import re
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Literal, Protocol
 
 from . import ci
 from .extract import Generate, extract
@@ -21,6 +24,28 @@ BASELINE = "1.0.0"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+@dataclass
+class NotesCapture:
+    """What capturing a notes doc did. `unchanged`: same text as last time, nothing was asked of Gemini.
+    `changed`: the notes were edited since; proposals hold only what is new or different. `new`: first time."""
+
+    status: Literal["new", "changed", "unchanged"]
+    group_id: str
+    title: str
+    proposals: list[Proposal] = field(default_factory=list)
+    questions: list[str] = field(default_factory=list)
+    captured_at: str = ""  # when these notes were last captured, for "changed since …"
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def fingerprint(text: str) -> str:
+    """Same notes, same fingerprint, whatever the trailing whitespace."""
+    return hashlib.sha256("\n".join(line.rstrip() for line in text.strip().splitlines()).encode()).hexdigest()
 
 
 class PRD(Protocol):
@@ -86,13 +111,51 @@ class SpecKeeper:
         group = [p for p in self.store.proposals_in_group(gid) if p.status != "dismissed"]
         return (gid, group) if group else None
 
-    def capture_meeting(self, channel: str, thread_ts: str, doc_id: str, fetch: FetchDoc) -> tuple[str, str, list[Proposal], list[str]]:
-        """Meeting notes in, one group of proposals out: (group id, notes title, proposals, open questions)."""
+    def capture_notes(self, channel: str, thread_ts: str, doc_id: str, fetch: FetchDoc) -> NotesCapture:
+        """Capture a notes doc, knowing what was captured from it before.
+
+        Unchanged notes (same fingerprint) return the earlier group without calling Gemini. Edited notes
+        are read again against the approved requirements, and only what is new or different comes back:
+        new decisions as new proposals, edits to approved ones as change proposals."""
         title, text = fetch(doc_id)
+        digest = fingerprint(text)
+        before = self.store.get_meta(f"doc:{doc_id}")
+        if before and self.store.get_meta(f"dochash:{doc_id}") == digest:
+            group = [p for p in self.store.proposals_in_group(before) if p.status != "dismissed"]
+            return NotesCapture("unchanged", before, title, group, [], self.store.get_meta(f"docat:{doc_id}"))
         group_id = "g" + uuid.uuid4().hex[:11]
         proposals, questions = self.capture(channel, thread_ts, passages(doc_id, title, text), group_id)
+        if before:
+            proposals = self._drop_repeats(proposals)
+        captured_at = self.store.get_meta(f"docat:{doc_id}")
         self.store.set_meta(f"doc:{doc_id}", group_id)
-        return group_id, title, proposals, questions
+        self.store.set_meta(f"dochash:{doc_id}", digest)
+        self.store.set_meta(f"docat:{doc_id}", _now())
+        return NotesCapture("changed" if before else "new", group_id, title, proposals, questions, captured_at)
+
+    def _drop_repeats(self, proposals: list[Proposal]) -> list[Proposal]:
+        """After an edit, Gemini should return only what's new or changed. In case it repeats an approved
+        requirement anyway, drop it here: a new one with an approved title, or a change that changes nothing."""
+        approved = {r.key: r for r in self.store.requirements() if r.status == "approved"}
+        titles = {_norm(r.title) for r in approved.values()}
+        kept = []
+        for p in proposals:
+            target = approved.get(p.target)
+            same = (
+                (p.kind == "new" and _norm(p.requirement.title) in titles)
+                or (p.kind == "change" and target is not None and [_norm(a.gherkin) for a in target.acs] == [_norm(a.gherkin) for a in p.requirement.acs])
+            )
+            if same:
+                p.status = "dismissed"
+                self.store.save_proposal(p)
+            else:
+                kept.append(p)
+        return kept
+
+    def capture_meeting(self, channel: str, thread_ts: str, doc_id: str, fetch: FetchDoc) -> tuple[str, str, list[Proposal], list[str]]:
+        """Meeting notes in, one group of proposals out: (group id, notes title, proposals, open questions)."""
+        result = self.capture_notes(channel, thread_ts, doc_id, fetch)
+        return result.group_id, result.title, result.proposals, result.questions
 
     @property
     def prd_version(self) -> str:

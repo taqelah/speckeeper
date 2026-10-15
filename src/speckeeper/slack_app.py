@@ -22,6 +22,13 @@ MENTION = re.compile(r"<@[A-Z0-9]+>")
 
 TZ = "Asia/Singapore"  # how message times are written in citations
 
+
+def _when(iso: str) -> str:
+    """'Oct 15, 10:42' in Singapore time, for 'the notes were edited since …'."""
+    if not iso:
+        return "they were captured"
+    return datetime.fromisoformat(iso).astimezone(ZoneInfo(TZ)).strftime("%b %d, %H:%M")
+
 HELP = (
     "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
     "`@Spec Keeper capture <link to meeting notes>` to capture everything a meeting agreed, "
@@ -106,35 +113,56 @@ def build_slack_app(
         if fetch_doc is None:
             await client.chat_update(channel=channel, ts=working["ts"], text="Reading meeting notes isn't set up on this server yet.")
             return
-        if seen := svc.already_captured(doc_id):
-            gid, group = seen
-            approved = [p.requirement.key for p in group if p.status == "approved"]
-            pending = [p for p in group if p.status == "pending"]
+        try:
+            result = await asyncio.to_thread(svc.capture_notes, channel, thread_ts, doc_id, fetch_doc)
+        except Exception as e:
+            log.exception("meeting capture failed")
+            unreadable = type(e).__name__ in ("PermissionError", "HttpError")
+            text = (
+                "I couldn't open those notes. Share the doc with Spec Keeper's service account (Viewer) and try again."
+                if unreadable
+                else "I couldn't read those notes just now. Try again in a minute."
+            )
+            await client.chat_update(channel=channel, ts=working["ts"], text=text)
+            return
+
+        if result.status == "unchanged":
+            approved = [p.requirement.key for p in result.proposals if p.status == "approved"]
+            pending = [p for p in result.proposals if p.status == "pending"]
             if pending:
-                # The old card may be lost in the channel or its buttons dead: post a fresh one here
-                # for whatever is still waiting, instead of pointing at it.
-                title = next((s.label.split(", ")[0] for p in pending for s in p.requirement.sources if s.kind == "meeting"), "the meeting")
-                note = f"These notes were captured before; {len(pending)} still waiting for approval" + (f" ({len(approved)} already approved: {', '.join(approved)})" if approved else "") + "."
-                await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=baseline_card(gid, title, pending, []))
+                # The old card may be lost in the channel or its buttons dead: post a fresh one here.
+                note = f"These notes haven't changed since they were captured; {len(pending)} still waiting for approval" + (
+                    f" ({len(approved)} already approved: {', '.join(approved)})" if approved else ""
+                ) + "."
+                await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=baseline_card(result.group_id, result.title, pending, []))
                 for p in pending:
                     svc.set_card(p.id, working["ts"])
                 return
-            note = f"These notes are already captured: {len(approved)} approved ({', '.join(approved)}). The PRD is at v{svc.prd_version}."
+            note = f"These notes haven't changed since they were captured: {len(approved)} approved ({', '.join(approved) or 'none'}). The PRD is at v{svc.prd_version or '–'}."
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
-        try:
-            group_id, title, proposals, questions = await asyncio.to_thread(svc.capture_meeting, channel, thread_ts, doc_id, fetch_doc)
-        except Exception:
-            log.exception("meeting capture failed")
-            await client.chat_update(
-                channel=channel, ts=working["ts"], text="I couldn't open those notes. Share the doc with Spec Keeper's service account (Viewer) and try again."
-            )
+
+        if result.status == "changed":
+            since = _when(result.captured_at)
+            if not result.proposals:
+                await client.chat_update(channel=channel, ts=working["ts"], text=f"The notes were edited since {since}, but nothing new or different was agreed.")
+                return
+            changes = [p for p in result.proposals if p.kind == "change"]
+            new = [p for p in result.proposals if p.kind == "new"]
+            parts = ([f"{len(new)} new requirement" + ("s" if len(new) != 1 else "")] if new else []) + [f"a change to {p.target}" for p in changes]
+            await client.chat_update(channel=channel, ts=working["ts"], text=f":pencil2: The notes were edited since {since}: " + ", ".join(parts) + ". Cards below.")
+            for p in result.proposals:
+                blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
+                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Change from the meeting notes" if p.kind == "change" else "New requirement from the meeting notes", blocks=blocks)
+                svc.set_card(p.id, res["ts"])
             return
-        if not proposals:
+
+        if not result.proposals:
             await client.chat_update(channel=channel, ts=working["ts"], text="I didn't find agreed requirements in those notes.")
             return
         await client.chat_update(
-            channel=channel, ts=working["ts"], text=f"Captured {len(proposals)} requirements from {title}", blocks=baseline_card(group_id, title, proposals, questions)
+            channel=channel, ts=working["ts"], text=f"Captured {len(result.proposals)} requirements from {result.title}",
+            blocks=baseline_card(result.group_id, result.title, result.proposals, result.questions),
         )
 
     STALE = "This card is from before Spec Keeper restarted, so its requirements are gone. Capture the notes again."
