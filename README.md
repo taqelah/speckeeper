@@ -120,9 +120,8 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   model call and counts every call's tokens, through ADK callbacks.
 - **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
   question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
-- **Engines.** `CAPTURE_ENGINE=adk` runs capture and thread watch as ADK multi-agent pipelines (a Flash triage
-  agent and a gate; a Pro capture agent and a citation check). The default, `direct`, makes the same calls
-  without ADK. Both share the prompts, schemas and checks, and the test suite runs against both.
+- **ADK pipelines.** Capture and thread watch run as ADK multi-agent pipelines: a Flash triage agent and a
+  gate step; a Pro capture agent and a citation-check step. A person's Review click sits between them.
 - **Analytics.** Each question's events (Gemini calls with tokens and latency, tool calls) stream to
   BigQuery through ADK's analytics plugin, with a formatter that keeps counts and names and drops all text.
   Cost and latency queries are in [analytics/queries.sql](analytics/queries.sql).

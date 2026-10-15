@@ -7,6 +7,9 @@ cases, not a benchmark. No script here reproduces them: production deliberately 
 text, so the counts come from the run outputs recorded during development, and from the Cloud Logging
 audit trail for the Oct 16 run.
 
+On Oct 16 capture and thread watch moved into ADK multi-agent pipelines (`src/speckeeper/pipelines.py`)
+with the same prompts, schemas and checks. These runs were made before that, with direct Gemini calls.
+
 ## Capture: meeting notes to requirements
 
 The input is the Checkout v2 kickoff notes ([`notes/`](notes/)). They contain:

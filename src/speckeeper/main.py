@@ -16,7 +16,6 @@ from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
 from .audit import audit
 from .config import Settings
-from .extract import Generate, gemini_generate
 from .service import SpecKeeper
 from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
@@ -34,7 +33,7 @@ class CiRun(BaseModel):
     junit_xml: str
 
 
-def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
+def build_service(s: Settings) -> SpecKeeper:
     if s.store == "firestore":
         store = FirestoreStore(s.gcp_project, s.first_req)
     elif s.store == "file":
@@ -52,30 +51,23 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
         issues = GitHubIssues(s.github_token, s.github_repo)
     from .agent import Asker, use_vertex
     from .analytics import analytics_plugins
+    from .pipelines import AdkEngine
     from .tracing import setup_tracing
 
     use_vertex(s.gcp_project, s.gemini_location)
     setup_tracing(s.trace_to_cloud, s.gcp_project)
+
+    def plugins() -> list:  # a fresh set per runner: the "why?" agent, capture and thread watch
+        return analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)
+
     return SpecKeeper(
         store,
-        generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),
+        AdkEngine(s.pro_model, s.flash_model, s.watch_thinking, plugins=plugins),
         prd,
         issues,
-        Asker(store, s.flash_model, fallback=s.pro_model, plugins=analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)),
-        triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
+        Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins()),
         min_confidence=s.watch_min_confidence,
-        engine=build_engine(s) if not generate else None,
     )
-
-
-def build_engine(s: Settings):
-    """CAPTURE_ENGINE=adk runs capture and thread watch as ADK pipelines; anything else keeps direct calls."""
-    if s.capture_engine != "adk":
-        return None
-    from .analytics import analytics_plugins
-    from .pipelines import AdkEngine
-
-    return AdkEngine(s.pro_model, s.flash_model, s.watch_thinking, plugins=lambda: analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location))
 
 
 def lazy_drive_fetch():

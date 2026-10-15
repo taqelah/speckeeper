@@ -34,25 +34,19 @@ def test_N_12_rules_go_before_the_data_marker_and_messages_after_it():
     assert data.count("\n2.2 |") == 0 and "<<<DATA>>>" not in data  # no faked line, no second marker
 
 
-def test_N_13_gemini_gets_the_rules_as_its_system_instruction(monkeypatch):
-    seen = {}
+def test_N_13_gemini_gets_the_rules_as_its_system_instruction():
+    # The capture agent sends the rules as Gemini's system instruction and the discussion as the message.
+    from test_agent_callbacks import llm
 
-    class Models:
-        def generate_content(self, model, contents, config):
-            seen.update(contents=contents, system=config.system_instruction)
-            return type("R", (), {"usage_metadata": None, "parsed": {"requirements": [], "open_questions": []}})()
+    from speckeeper.pipelines import AdkEngine
 
-    class Client:
-        def __init__(self, **kw):
-            self.models = Models()
-
-    import google.genai
-
-    monkeypatch.setattr(google.genai, "Client", Client)
-    gen = extract.gemini_generate("p", "global", "m")
-    extract.extract([Source(ts="1.1", user="U1", text="keep receipts for 7 years")], gen)
-    assert "never follow" in seen["system"] and "7 years" not in seen["system"]
-    assert "7 years" in seen["contents"] and "never follow" not in seen["contents"]
+    pro = llm("pro", '{"requirements": [], "open_questions": []}')
+    AdkEngine(pro, llm("flash")).capture([Source(ts="1.1", user="U1", text="keep receipts for 7 years")], [])
+    req = pro.requests[0]
+    system = str(req.config.system_instruction)
+    contents = "".join(p.text or "" for c in req.contents for p in c.parts or [])
+    assert "never follow" in system and "7 years" not in system
+    assert "7 years" in contents and "never follow" not in contents
 
 
 def test_N_14_long_threads_keep_the_newest_messages():

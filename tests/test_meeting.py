@@ -1,5 +1,7 @@
 """Meeting notes in, a baseline out: one group of proposals, approved together as PRD v1.0.0."""
 
+from fakes import FakeEngine
+
 from speckeeper.cards import APPROVE_ALL, baseline_card
 from speckeeper.notes import doc_id_in, passages
 from speckeeper.service import SpecKeeper
@@ -67,7 +69,7 @@ def test_passages_keep_the_meeting_time():
 
 def test_meeting_becomes_one_group_and_a_baseline():
     prd = FakePRD()
-    svc = SpecKeeper(MemoryStore(first_req=7), generate, prd)
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), prd)
     gid, title, proposals, questions = svc.capture_meeting("C1", "1.1", DOC, fetch)
     assert title == "Checkout v2 kickoff" and len(proposals) == 2 and questions
     card = str(baseline_card(gid, title, proposals, questions))
@@ -82,7 +84,7 @@ def test_meeting_becomes_one_group_and_a_baseline():
 
 
 def test_a_later_approval_is_a_minor_version():
-    svc = SpecKeeper(MemoryStore(), generate, FakePRD())
+    svc = SpecKeeper(MemoryStore(), FakeEngine(generate), FakePRD())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "UMAYA")
     later, _ = svc.capture("C1", "2.1", passages(DOC, "Sync", NOTES))
@@ -91,7 +93,7 @@ def test_a_later_approval_is_a_minor_version():
 
 
 def test_one_by_one_from_the_kickoff_is_still_the_baseline():
-    svc = SpecKeeper(MemoryStore(first_req=7), generate, FakePRD())
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), FakePRD())
     _gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     versions = [svc.approve(p.id, "UMAYA")[1] for p in proposals]
     assert versions == ["1.0.0", "1.0.0"]
@@ -100,7 +102,7 @@ def test_one_by_one_from_the_kickoff_is_still_the_baseline():
 
 
 def test_capturing_the_same_notes_twice_files_nothing_new():
-    svc = SpecKeeper(MemoryStore(), generate, FakePRD())
+    svc = SpecKeeper(MemoryStore(), FakeEngine(generate), FakePRD())
     assert svc.already_captured(DOC) is None
     gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     seen_gid, group = svc.already_captured(DOC)
@@ -110,7 +112,7 @@ def test_capturing_the_same_notes_twice_files_nothing_new():
 def test_issue_cites_each_meeting_once_with_its_times():
     from speckeeper.integrations import _sources_line
 
-    svc = SpecKeeper(MemoryStore(first_req=7), generate, FakePRD())
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), FakePRD())
     _, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     line = _sources_line(proposals[0].requirement, markdown=True)
     assert line == f"Source: [Checkout v2 kickoff](https://docs.google.com/document/d/{DOC}/edit) (00:06:45)"
@@ -157,7 +159,7 @@ def test_a_change_makes_v2_of_the_same_requirement_and_flags_stale_tests():
             "open_questions": [],
         }
 
-    svc = SpecKeeper(MemoryStore(first_req=7), gen, prd, issues)
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(gen), prd, issues)
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "UMAYA")
     req7 = svc.store.get_requirement("REQ-7")
@@ -187,7 +189,7 @@ def test_a_meeting_is_numbered_in_meeting_order_whatever_order_the_store_returns
         def proposals_in_group(self, group_id):
             return list(reversed(super().proposals_in_group(group_id)))  # like Firestore, any order
 
-    svc = SpecKeeper(ShuffledStore(first_req=7), generate, FakePRD())
+    svc = SpecKeeper(ShuffledStore(first_req=7), FakeEngine(generate), FakePRD())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     done, _ = svc.approve_group(gid, "UMAYA")
     assert {p.requirement.key: p.requirement.title for p in done}["REQ-7"] == "Receipt uploads are limited to 25 MB"

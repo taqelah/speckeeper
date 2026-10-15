@@ -1,5 +1,6 @@
 """The ADK agent's tools read Spec Keeper's own store; no Gemini call here."""
 
+from fakes import FakeEngine
 from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
 
 from speckeeper.agent import build_agent, build_tools
@@ -28,7 +29,7 @@ def test_tools_answer_from_the_store_including_change_history():
             "open_questions": [],
         }
 
-    svc = SpecKeeper(MemoryStore(first_req=7), gen, FakePRD(), FakeIssues())
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(gen), FakePRD(), FakeIssues())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "UMAYA")
     (p,), _ = svc.capture(

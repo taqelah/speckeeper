@@ -1,11 +1,10 @@
-"""The ADK pipelines (CAPTURE_ENGINE=adk): the order of their steps, the citation check and the triage gate
-as agent steps, the rules/data split, low thinking for thread watch, and the guardrails. A scripted model
-stands in for Gemini; `pytest --engine=adk` also runs every other test through these pipelines."""
+"""The ADK pipelines: the order of their steps, the citation check and the triage gate as agent steps, the
+rules/data split, low thinking for thread watch, and the guardrails. A scripted model stands in for Gemini;
+every other test also runs through these pipelines (tests/fakes.py)."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 
 import pytest
 from test_agent_callbacks import llm
@@ -82,13 +81,15 @@ def test_the_guardrails_apply_inside_the_pipelines(monkeypatch):
     assert pro.requests == []
 
 
-def test_the_engine_is_chosen_by_capture_engine():
+def test_the_service_runs_capture_and_thread_watch_on_the_adk_pipelines():
     from test_e2e import settings
 
-    from speckeeper.main import build_engine
+    from speckeeper.main import build_service
 
-    assert build_engine(settings()) is None
-    assert isinstance(build_engine(replace(settings(), capture_engine="adk")), AdkEngine)
+    engine = build_service(settings()).engine
+    assert isinstance(engine, AdkEngine)
+    assert engine.capture_runner.agent.name == "capture" and [a.name for a in engine.capture_runner.agent.sub_agents] == ["capture_agent", "citation_check"]
+    assert engine.watch_runner.agent.name == "thread_watch" and [a.name for a in engine.watch_runner.agent.sub_agents] == ["triage_agent", "triage_gate"]
 
 
 def test_the_check_steps_do_the_checking_themselves():

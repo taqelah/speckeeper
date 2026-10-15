@@ -19,7 +19,7 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
 1. **Nothing is written without a person.** Capture only proposes. The PRD, GitHub issues and
    requirement versions change only on Approve. Never add a path that writes on its own.
 2. **No citation, no requirement.** Every requirement must cite a message or meeting passage that
-   was really in the input. `extract.py` drops anything Gemini cites that isn't there; keep that.
+   was really in the input. The `citation_check` step (`extract.cited`) drops anything Gemini cites that isn't there; keep that.
 3. **A change is a new version of the same requirement**, never a second requirement. REQ-7 v1
    becomes REQ-7 v2; criteria keep their keys; a criterion whose text changed goes stale if a test
    had proved the old text.
@@ -53,7 +53,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
 | `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
 | `src/speckeeper/service.py` | What Spec Keeper does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
-| `src/speckeeper/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |
+| `src/speckeeper/extract.py` | Capture and thread-watch prompts, response schemas and checks (`cited`, `passes_gate`); changes to approved requirements marked |
 | `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback. Guardrails are ADK callbacks (`guardrails()`): budget before each model call, tokens after, tool checks and audit, fallback on a rate limit |
 | `src/speckeeper/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
 | `src/speckeeper/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
@@ -62,7 +62,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
-| `src/speckeeper/pipelines.py` | Capture and thread watch as ADK multi-agent pipelines when `CAPTURE_ENGINE=adk`: `SequentialAgent`[Flash `triage_agent` → `triage_gate`] and [Pro `capture_agent` → `citation_check`], with the guardrail callbacks. Default `direct` keeps the plain calls in `extract.py`; both share the prompts, schemas and checks |
+| `src/speckeeper/pipelines.py` | Capture and thread watch as ADK multi-agent pipelines: `SequentialAgent`[Flash `triage_agent` → `triage_gate`] and [Pro `capture_agent` → `citation_check`], with the guardrail callbacks and the analytics plugins. The only way capture and thread watch run since Oct 16, 2026 |
 | `src/speckeeper/analytics.py` | ADK's BigQuery agent analytics plugin when `ANALYTICS_DATASET` is set (`deploy.sh` sets `speckeeper_analytics`); `redact()` keeps counts and names, never text. Queries in `analytics/queries.sql` |
 | `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
@@ -113,8 +113,8 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   response so tests can assert on what was posted.
 - Test ids (`E2E-`, `N-`, `C-`) match the test plan in the team's build plan doc. Add a negative and
   a corner case with every feature.
-- **Both engines:** `pytest --engine=adk` runs every test with capture and thread watch going through the ADK
-  pipelines (`tests/conftest.py` puts the tests' fake Gemini behind ADK's model interface); CI runs both.
+- **Fake Gemini, real pipelines:** tests give `SpecKeeper` a `FakeEngine` (`tests/fakes.py`): the tests' fake
+  generate(prompt, schema) functions answer as the model, behind the real ADK pipelines and check steps.
 - **ADK eval** (`evals/qa/`) asks the question agent 13 questions against a fixed in-memory project
   and scores tool trajectory (IN_ORDER), answer match and hallucinations with a Gemini judge. It uses
   real Gemini, so it is run by hand, not in CI; `tests/test_evals.py` checks without Gemini that every
