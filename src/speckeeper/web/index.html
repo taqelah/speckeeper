@@ -137,7 +137,7 @@
   </section>
 
   <section class="wrap chapter" id="gcp" aria-labelledby="gcp-h">
-    <div class="label"><div class="num">IV</div><div class="name" id="gcp-h">Under the hood</div><p>Built on Google Cloud, tuned for speed. Times measured on the live service.</p></div>
+    <div class="label"><div class="num">IV</div><div class="name" id="gcp-h">Under the hood</div><p>Built on Google Cloud, tuned for speed and cost. Times and costs measured on the live service.</p></div>
     <div class="body">
       <p class="big">Slack waits three seconds for an answer. Every Google product in the stack was tuned so it never has to wait longer.</p>
       <div class="stats">
@@ -147,6 +147,14 @@
         <div><div class="n">37–45s</div><div class="t">Capturing a meeting</div></div>
         <div><div class="n">~1s</div><div class="t">Unchanged notes, no Gemini call</div></div>
       </div>
+      <p class="big">And cheap to run. Every Gemini call logs its tokens, so each action has a real price.</p>
+      <div class="stats">
+        <div><div class="n">&#36;0.001</div><div class="t">One thread-watch check, 20× cheaper with low thinking</div></div>
+        <div><div class="n">&#36;0.006</div><div class="t">Answering a “why?” question</div></div>
+        <div><div class="n">&#36;0.05</div><div class="t">Capturing a meeting</div></div>
+        <div><div class="n">&#36;0.09</div><div class="t">One full demo, end to end</div></div>
+      </div>
+      <p>From 32 logged calls at Gemini list prices on Oct 16, 2026: medians per action, and the demo adds them up. Approvals, the PRD, GitHub issues and CI results make no Gemini call. <a href="$repo/blob/d58e67c8e8400e5a1e0f541101df7be5336b5254/evals/cost.md">How it is worked out</a>.</p>
       <div class="scroll">
         <table style="min-width: 640px">
           <thead><tr><th scope="col" style="width: 26%">Google product</th><th scope="col">What we tuned</th></tr></thead>
