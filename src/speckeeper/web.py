@@ -46,6 +46,8 @@ def status_strip(svc) -> str:
     except Exception:
         return '<p class="status"><span class="live">Live on Cloud Run</span></p>'
     parts = ['<span class="live">Live on Cloud Run</span>']
+    if not reqs:
+        return '<p class="status" aria-label="Live status">' + parts[0] + " · clean start: nothing approved yet</p>"
     if svc.prd_version:
         parts.append(f"PRD <b>v{html.escape(svc.prd_version)}</b>")
     parts.append(f"<b>{len(reqs)}</b> requirement{'s' if len(reqs) != 1 else ''}")

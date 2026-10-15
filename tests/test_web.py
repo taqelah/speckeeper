@@ -54,3 +54,8 @@ def test_copy_buttons_carry_the_test_inputs():
     body = page(demo_notes_url="https://docs.google.com/document/d/NOTES/edit").get("/").text
     assert 'data-copy="let&#x27;s cap uploads at 8 MB"' in body or "data-copy=\"let's cap uploads at 8 MB\"" in body
     assert 'data-copy="@Spec Keeper https://docs.google.com/document/d/NOTES/edit"' in body and 'data-copy="@Spec Keeper reset demo"' in body and "Grounding and guardrails" in body and "Built on Google Cloud, tuned for speed" in body
+
+
+def test_the_status_line_reads_well_on_a_clean_start():
+    body = page().get("/").text
+    assert "clean start: nothing approved yet" in body
