@@ -169,11 +169,11 @@
   <section class="wrap chapter rule" id="measured" aria-labelledby="measured-h">
     <div class="label"><div class="num">V</div><div class="name" id="measured-h">Measured</div><p>The “why?” agent, graded by ADK’s evaluator with Gemini as the judge.</p></div>
     <div class="body">
-      <p class="big">We ask the agent 13 questions about a fixed project, each with an answer key: the tools it should use and the answer it should give.</p>
+      <p class="big">We ask the agent 13 questions about a fixed project, three times each, against an answer key: the tools it should use and the answer it should give.</p>
       <div class="stats">
-        <div><div class="n">13/13</div><div class="t">Used the right tools, in order</div></div>
-        <div><div class="n">13/13</div><div class="t">Answer matches the answer key</div></div>
-        <div><div class="n">13/13</div><div class="t">No claim the tools didn’t back</div></div>
+        <div><div class="n">39/39</div><div class="t">Used the right tools, in order</div></div>
+        <div><div class="n">39/39</div><div class="t">Answer matches the answer key</div></div>
+        <div><div class="n">39/39</div><div class="t">No claim the tools didn’t back (avg 0.995)</div></div>
       </div>
       <div class="scroll">
         <table style="min-width: 640px">
@@ -188,7 +188,7 @@
           </tbody>
         </table>
       </div>
-      <p>Agent and judge on Gemini 3.8 Flash. Run it with <code>python -m evals.qa.run</code>; <a href="$repo/blob/main/evals/qa/report.json">the latest report</a> and <a href="$repo/tree/main/evals/qa">the questions</a> are in the repo.</p>
+      <p>39 answers: 13 questions × 3 runs. Agent and judge on Gemini 3.8 Flash. Run it with <code>python -m evals.qa.run</code>; <a href="$repo/blob/630248dddc182435eeed89ec1f5e54d7c3d9c55a/evals/qa/report.json">the latest report</a> and <a href="$repo/blob/630248dddc182435eeed89ec1f5e54d7c3d9c55a/evals/qa/cases.py">the questions</a> are in the repo.</p>
     </div>
   </section>
 

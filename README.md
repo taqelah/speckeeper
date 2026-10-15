@@ -172,14 +172,14 @@ uv run --env-file .env --group eval python -m evals.qa.run
 
 An ADK eval (`AgentEvaluator`) of the "why?" agent: 13 questions about a fixed project (the Checkout v2
 kickoff, then the upload limit changed from 25 MB to 8 MB in Slack), each with the tool calls it needs
-and a reference answer. A Gemini judge scores every answer. Latest results
+and a reference answer. A Gemini judge scores every answer. Latest results, 13 questions × 3 runs
 ([evals/qa/report.json](evals/qa/report.json)):
 
 | Metric | What it checks | Passed | Average |
 |---|---|---|---|
-| Tool trajectory (in order) | Called the right tools | 13 / 13 | 1.00 |
-| Final response match v2 | Answer agrees with the reference | 13 / 13 | 1.00 |
-| Hallucinations v1 | Every claim backed by a tool result | 13 / 13 | 1.00 |
+| Tool trajectory (in order) | Called the right tools | 39 / 39 | 1.00 |
+| Final response match v2 | Answer agrees with the reference | 39 / 39 | 1.00 |
+| Hallucinations v1 | Every claim backed by a tool result | 39 / 39 | 0.995 |
 
 It uses real Gemini, so it is run by hand, not in CI. `tests/test_evals.py` checks, without Gemini,
 that every case can be answered from the fixture.
