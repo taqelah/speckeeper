@@ -56,6 +56,8 @@ class Proposal(BaseModel):
     status: Literal["pending", "approved", "dismissed"] = "pending"
     decided_by: str = ""
     group_id: str = ""  # proposals captured together from one meeting share a group
+    created_at: str = ""  # when it was captured (ISO time)
+    seq: int = 0  # its position in that capture, so a meeting's requirements are numbered in meeting order
     target: str = ""  # for kind "change": the approved requirement it changes, e.g. REQ-7
     decided_at: str = ""  # ISO time of the approval or dismissal
     previous: Requirement | None = None  # for an approved change: the requirement as it was before

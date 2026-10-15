@@ -168,3 +168,14 @@ def test_a_change_makes_v2_of_the_same_requirement_and_flags_stale_tests():
     assert issues.updated == [(1, 2, "Receipt uploads are limited to 10 MB")]
     assert "Stale until their tests are updated to @v2: AC-7-1" in issues.comments[-1][1]
     assert prd.notes[-1].startswith("v1.1.0 · REQ-7 changed to v2")
+
+
+def test_a_meeting_is_numbered_in_meeting_order_whatever_order_the_store_returns():
+    class ShuffledStore(MemoryStore):
+        def proposals_in_group(self, group_id):
+            return list(reversed(super().proposals_in_group(group_id)))  # like Firestore, any order
+
+    svc = Threadline(ShuffledStore(first_req=7), generate, FakePRD())
+    gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    done, _ = svc.approve_group(gid, "UMAYA")
+    assert {p.requirement.key: p.requirement.title for p in done}["REQ-7"] == "Receipt uploads are limited to 25 MB"

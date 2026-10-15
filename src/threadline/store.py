@@ -9,6 +9,11 @@ from typing import Protocol
 from .models import Proposal, Requirement
 
 
+def _capture_order(p: Proposal) -> tuple:
+    """The order a capture produced them in: the meeting's order, which decides REQ numbers."""
+    return (p.created_at, p.seq)
+
+
 def _history_order(p: Proposal) -> tuple:
     """Oldest first; a requirement's creation before any change made in the same instant."""
     return (p.decided_at, p.kind == "change", p.requirement.version)
@@ -57,7 +62,7 @@ class MemoryStore:
         return [r.model_copy(deep=True) for r in self._reqs.values()]
 
     def proposals_in_group(self, group_id: str) -> list[Proposal]:
-        return [p.model_copy(deep=True) for p in self._proposals.values() if p.group_id == group_id]
+        return [p.model_copy(deep=True) for p in sorted(self._proposals.values(), key=_capture_order) if p.group_id == group_id]
 
     def proposals_for(self, key: str) -> list[Proposal]:
         """Every decided proposal that created or changed a requirement, oldest first."""
@@ -162,7 +167,7 @@ class FirestoreStore:
 
     def proposals_in_group(self, group_id: str) -> list[Proposal]:
         docs = self._col("proposals").where("group_id", "==", group_id).stream()
-        return [Proposal.model_validate(d.to_dict()) for d in docs]
+        return sorted((Proposal.model_validate(d.to_dict()) for d in docs), key=_capture_order)
 
     def get_meta(self, key: str, default: str = "") -> str:
         snap = self._col("meta").document("project").get()

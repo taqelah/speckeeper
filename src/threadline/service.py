@@ -67,9 +67,13 @@ class Threadline:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
         reqs, questions = extract(messages, self.generate, approved)
         proposals = []
-        for req, changes in reqs:
+        now = _now()
+        for seq, (req, changes) in enumerate(reqs):
             kind = "change" if changes else "new"
-            p = Proposal(id=uuid.uuid4().hex[:12], kind=kind, target=changes, requirement=req, channel=channel, thread_ts=thread_ts, group_id=group_id)
+            p = Proposal(
+                id=uuid.uuid4().hex[:12], kind=kind, target=changes, requirement=req, channel=channel, thread_ts=thread_ts,
+                group_id=group_id, created_at=now, seq=seq,
+            )
             self.store.save_proposal(p)
             proposals.append(p)
         return proposals, questions
@@ -113,7 +117,9 @@ class Threadline:
 
     def approve_group(self, group_id: str, user: str, user_name: str = "") -> tuple[list[Proposal], str]:
         """Approve every pending proposal from one meeting in one go: the PRD's baseline."""
-        done = [p for p in (self._approve(p.id, user) for p in self.store.proposals_in_group(group_id)) if p]
+        # Numbered in the order the meeting produced them, whatever order the store returns.
+        group = sorted(self.store.proposals_in_group(group_id), key=lambda p: (p.created_at, p.seq))
+        done = [p for p in (self._approve(p.id, user) for p in group) if p]
         if not done:
             return [], self.prd_version
         keys = ", ".join(p.requirement.key for p in done)
