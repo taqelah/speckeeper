@@ -1,3 +1,5 @@
+<img src="brand/icons/1-doc-check.png" alt="Spec Keeper logo" width="96">
+
 # Spec Keeper
 
 **The Slack agent that makes sure what your team agreed on is what actually shipped.**
