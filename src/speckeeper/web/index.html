@@ -131,7 +131,7 @@
             </tbody>
           </table>
         </div>
-        <a href="/change-sequence.png"><img class="fig" src="/change-sequence.png" width="1600" height="1100" loading="lazy" alt="How a change travels, in 14 steps. 1, the team says in Slack: let's cap uploads at 8 MB. 2, Spec Keeper adds an eyes reaction. 3 and 4, Gemini Flash triages the thread and says it changes REQ-7, confidence 0.95. 5, a suggestion card appears. 6, someone clicks Review change. 7, Gemini Pro captures the cited messages. 8, a change card with the diff appears. 9, someone approves. 10, Firestore records REQ-7 v2 and PRD v1.1.0. 11, the PRD in Google Docs is rebuilt. 12, the GitHub issue is updated. 13, CI reports AC-7-1@v1 passed. 14, Spec Keeper reports those tests as stale, because they were written for v1."></a>
+        <a href="/change-sequence.png"><img class="fig" src="/change-sequence.png?v=2" width="1600" height="1170" loading="lazy" alt="How a change travels, in 14 steps. 1, the team says in Slack: let's cap uploads at 8 MB. 2, Spec Keeper adds an eyes reaction. 3 and 4, the ADK triage agent on Gemini Flash looks at the thread and its gate step lets through a change to REQ-7, confidence 0.95. 5, a suggestion card appears. 6, someone clicks Review change. 7, the ADK capture agent on Gemini Pro captures the cited messages and a citation check drops anything uncited. 8, a change card with the diff appears. 9, someone approves. 10, Firestore records REQ-7 v2 and PRD v1.1.0. 11, the PRD in Google Docs is rebuilt. 12, the GitHub issue is updated. 13, CI reports AC-7-1@v1 passed. 14, Spec Keeper reports those tests as stale, because they were written for v1. Later, a why question goes to the agent on Vertex AI Agent Engine, whose Memory Bank lets it say the requirement changed since that person last asked."></a>
       </div>
     </div>
   </section>
@@ -181,7 +181,7 @@
           </tbody>
         </table>
       </div>
-      <a href="/architecture.png"><img class="fig" src="/architecture.png" width="1488" height="1080" loading="lazy" style="border: 2px solid #111111" alt="Cloud deployment. Slack, the meeting notes in Google Docs, GitHub Actions and a browser feed one Cloud Run service in a Google Cloud project. Inside it: capture with Gemini 3.1 Pro, thread watch with Gemini 3.8 Flash, the approval gate, CI verification, the ADK question agent and the PRD builder, behind guardrails. It uses Vertex AI, Firestore, Secret Manager and Cloud Logging, and writes the PRD in Google Docs and GitHub issues."></a>
+      <a href="/architecture.png"><img class="fig" src="/architecture.png?v=2" width="1488" height="1200" loading="lazy" style="border: 2px solid #111111" alt="Cloud deployment. Slack, the meeting notes in Google Docs, GitHub Actions and a browser feed one Cloud Run service in a Google Cloud project. Inside it: capture as an ADK pipeline (a Gemini Pro agent, then a citation check), thread watch as an ADK pipeline (a Gemini Flash agent, then a gate), the approval gate, CI verification, the PRD builder, and why questions sent to Vertex AI Agent Engine with a local ADK agent as fallback, behind guardrails that are ADK callbacks. Agent Engine runs the why agent with managed sessions and Memory Bank. The service also uses Vertex AI, Firestore, Secret Manager, Cloud Logging, BigQuery and Cloud Trace, and writes the PRD in Google Docs and GitHub issues."></a>
     </div>
   </section>
 

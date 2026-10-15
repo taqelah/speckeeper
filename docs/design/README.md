@@ -10,4 +10,5 @@ The designs that are live, with their sources.
 
 `src/` holds each design's source as a design-canvas file (`.dc.html`). They were made in a Claude design
 canvas and need its runtime to open as designs; the PNGs are the readable versions. The landing page
-preview was taken on 15 Oct 2026; the live page is the one to keep up to date.
+preview was taken on 15 Oct 2026; the live page is the one to keep up to date. The two architecture
+diagrams were updated on 16 Oct 2026 for the ADK pipelines, Agent Engine, Memory Bank, BigQuery and Cloud Trace.
