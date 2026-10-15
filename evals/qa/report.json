@@ -1,0 +1,47 @@
+{
+  "eval_set": "speckeeper_qa",
+  "cases": 13,
+  "runs_per_case": 1,
+  "agent_model": "gemini-3.8-flash",
+  "judge_model": "gemini-3.8-flash",
+  "metrics": {
+    "final_response_match_v2": {
+      "average": 1.0,
+      "passed": 13,
+      "total": 13,
+      "threshold": 0.7
+    },
+    "hallucinations_v1": {
+      "average": 1.0,
+      "passed": 13,
+      "total": 13,
+      "threshold": 0.8
+    },
+    "tool_trajectory_avg_score": {
+      "average": 1.0,
+      "passed": 13,
+      "total": 13,
+      "threshold": 0.8
+    }
+  },
+  "measured": {
+    "inference_call_count_v1": {
+      "average": 2.846,
+      "runs": 13
+    },
+    "invocation_duration_v1": {
+      "average": 29.755,
+      "runs": 13
+    },
+    "token_usage_v1": {
+      "average": 3367.0,
+      "runs": 13
+    },
+    "tool_call_count_v1": {
+      "average": 2.308,
+      "runs": 13
+    }
+  },
+  "seconds": 332,
+  "generated_at": "2026-10-15T11:58:05+00:00"
+}

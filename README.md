@@ -159,10 +159,30 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-55 tests, about a second, no network. Thirty of them run the whole app end to end: Slack-signed
+127 tests, about a second, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
+
+## Evaluate the question agent
+
+```sh
+uv run --env-file .env --group eval python -m evals.qa.run
+```
+
+An ADK eval (`AgentEvaluator`) of the "why?" agent: 13 questions about a fixed project (the Checkout v2
+kickoff, then the upload limit changed from 25 MB to 8 MB in Slack), each with the tool calls it needs
+and a reference answer. A Gemini judge scores every answer. Latest results
+([evals/qa/report.json](evals/qa/report.json)):
+
+| Metric | What it checks | Passed | Average |
+|---|---|---|---|
+| Tool trajectory (in order) | Called the right tools | 13 / 13 | 1.00 |
+| Final response match v2 | Answer agrees with the reference | 13 / 13 | 1.00 |
+| Hallucinations v1 | Every claim backed by a tool result | 13 / 13 | 1.00 |
+
+It uses real Gemini, so it is run by hand, not in CI. `tests/test_evals.py` checks, without Gemini,
+that every case can be answered from the fixture.
 
 ## For contributors
 

@@ -32,6 +32,12 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
 ]
+eval = [
+    "google-adk[eval]>=2.12",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]  # so tests can import evals/
 
 [tool.ruff]
 line-length = 160  # the code wraps long lines by meaning, not at 88
