@@ -53,6 +53,7 @@ HELP = (
 def build_slack_app(
     token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False,
     quiet: float = 15, approvers: tuple[str, ...] = (), per_user: int = 10, per_seconds: float = 600,
+    demo_channels: tuple[str, ...] = (),
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
     before the HTTP response so the test can check what was posted (thread watch then checks at once).
@@ -120,6 +121,27 @@ def build_slack_app(
         thread_ts = event.get("thread_ts") or event["ts"]
         doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
         first = text.split(" ", 1)[0].strip(",.:!") if text else ""
+        if text.startswith("reset demo"):
+            user = event.get("user", "")
+            if channel not in demo_channels:
+                await say(text="Reset only works in the demo channel.", thread_ts=thread_ts)
+                return
+            if await busy(client, channel, thread_ts, user):
+                return
+            await eyes(client, channel, event["ts"])
+            try:
+                done = await asyncio.to_thread(svc.reset_demo, user)
+                note = (
+                    f"Demo reset by <@{user}>: {done['requirements']} requirements cleared, {done['issues']} GitHub issues closed, "
+                    "and the PRD is empty again. To start, type `@Spec Keeper` and paste the kickoff notes link."
+                )
+            except Exception as e:
+                log.exception("demo reset failed")
+                note = failed(e, "reset the demo")
+            finally:
+                await eyes(client, channel, event["ts"], on=False)
+            await say(text=note, thread_ts=thread_ts)
+            return
         if first in ("mute", "unmute"):
             await asyncio.to_thread(svc.mute, channel, thread_ts, first == "mute", event["ts"])
             note = (

@@ -30,6 +30,7 @@ class Settings:
     demo_slack_invite: str = ""  # the landing page's "Join the demo Slack" button; hidden when empty
     demo_video_url: str = ""
     contact_email: str = ""
+    demo_channels: tuple[str, ...] = ()  # Slack channel ids where "@Spec Keeper reset demo" is allowed
     demo_notes_url: str = ""  # the kickoff notes link judges paste; gets a copy button on the landing page
     source_repo: str = "https://github.com/taqelah/speckeeper"
 
@@ -60,5 +61,6 @@ class Settings:
             demo_video_url=env("DEMO_VIDEO_URL", ""),
             contact_email=env("CONTACT_EMAIL", ""),
             demo_notes_url=env("DEMO_NOTES_URL", ""),
+            demo_channels=tuple(c.strip() for c in env("DEMO_CHANNELS", "").split(",") if c.strip()),
             source_repo=env("SOURCE_REPO", "https://github.com/taqelah/speckeeper"),
         )

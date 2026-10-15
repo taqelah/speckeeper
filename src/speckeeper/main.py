@@ -85,7 +85,7 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     svc = svc or build_service(s)
     slack = build_slack_app(
         s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait, quiet=s.watch_quiet_seconds,
-        approvers=s.approvers, per_user=s.requests_per_user, per_seconds=s.requests_window_seconds,
+        approvers=s.approvers, per_user=s.requests_per_user, per_seconds=s.requests_window_seconds, demo_channels=s.demo_channels,
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing

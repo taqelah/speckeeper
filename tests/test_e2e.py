@@ -613,3 +613,32 @@ def test_C_21_unchanged_notes_report_approved_and_dismissed_and_link_the_prd():
     note = app.slack.posted("chat.update")[-1]["text"]
     assert "1 approved (REQ-7), 1 dismissed." in note
     assert f"<https://docs.google.com/document/d/PRDDOC/edit|v{app.svc.prd_version}>" in note
+
+
+def _demo_app(**kw):
+    from dataclasses import replace
+
+    app = App(Gemini(KICKOFF, KICKOFF), **kw)
+    app.http = TestClient(create_app(replace(settings(), demo_channels=("C1",)), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True))
+    return app
+
+
+def test_C_22_reset_demo_gives_the_next_person_a_clean_start():
+    app = _demo_app()
+    kickoff_approved(app)
+    assert app.svc.prd_version == "1.0.0" and len(app.svc.store.requirements()) == 2
+    app.mention("reset demo", ts="300.1")
+    note = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert "Demo reset" in note and "2 requirements cleared" in note and "2 GitHub issues closed" in note
+    assert app.svc.store.requirements() == [] and app.svc.prd_version == "" and app.issues.closed == [1, 1]
+    assert app.prd.appended == []  # the PRD was rebuilt empty
+    kickoff_approved(app)  # the same notes capture again, numbered from the start
+    assert [r.key for r in app.svc.store.requirements()] == ["REQ-7", "REQ-8"] and app.svc.prd_version == "1.0.0"
+
+
+def test_C_23_reset_only_works_in_the_demo_channel():
+    app = App()
+    kickoff_approved(app)
+    app.mention("reset demo", ts="300.1")
+    assert "only works in the demo channel" in app.slack.posted("chat.postMessage")[-1]["text"]
+    assert len(app.svc.store.requirements()) == 2

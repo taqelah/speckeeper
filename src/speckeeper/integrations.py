@@ -86,5 +86,9 @@ class GitHubIssues:
             ]
         ))
 
+    def close(self, number: int, comment: str) -> None:
+        self.comment(number, comment)
+        self.http.patch(f"/repos/{self.repo}/issues/{number}", json={"state": "closed", "state_reason": "not_planned"}).raise_for_status()
+
     def comment(self, number: int, body: str) -> None:
         self.http.post(f"/repos/{self.repo}/issues/{number}/comments", json={"body": no_mentions(body)}).raise_for_status()

@@ -122,6 +122,9 @@ class FakeIssues:
     def comment(self, number, body):
         self.comments.append((number, body))
 
+    def close(self, number, comment):
+        self.closed = getattr(self, "closed", []) + [number]
+
 
 def test_a_change_makes_v2_of_the_same_requirement_and_flags_stale_tests():
     from speckeeper.cards import change_card

@@ -30,14 +30,19 @@ class Store(Protocol):
     def proposals_for(self, key: str) -> list[Proposal]: ...
     def get_meta(self, key: str, default: str = "") -> str: ...
     def set_meta(self, key: str, value: str) -> None: ...
+    def clear(self) -> None: ...
 
 
 class MemoryStore:
     def __init__(self, first_req: int = 1) -> None:
         self._proposals: dict[str, Proposal] = {}
         self._reqs: dict[str, Requirement] = {}
-        self._next = first_req
+        self._next = self._first = first_req
         self._meta: dict[str, str] = {}
+
+    def clear(self) -> None:
+        """Everything gone and numbering back to the start: the demo's reset."""
+        self._proposals, self._reqs, self._meta, self._next = {}, {}, {}, self._first
 
     def save_proposal(self, p: Proposal) -> None:
         self._proposals[p.id] = p.model_copy(deep=True)
@@ -89,6 +94,10 @@ class FileStore(MemoryStore):
             self._reqs = {k: Requirement.model_validate(v) for k, v in data["requirements"].items()}
             self._next, self._meta = data["next"], data["meta"]
 
+    def clear(self) -> None:
+        super().clear()
+        self._save()
+
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {
@@ -134,6 +143,12 @@ class FirestoreStore:
 
     def _col(self, name: str):
         return self._db.collection(self._prefix + name)
+
+    def clear(self) -> None:
+        """Deletes every proposal, requirement and meta document (the REQ counter too)."""
+        for name in ("proposals", "requirements", "meta"):
+            for ref in self._col(name).list_documents():
+                ref.delete()
 
     def save_proposal(self, p: Proposal) -> None:
         self._col("proposals").document(p.id).set(p.model_dump())

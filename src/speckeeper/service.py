@@ -20,6 +20,7 @@ from . import ci
 from .extract import Generate, Suggestion, extract, triage
 from .models import Proposal, Requirement, Source
 from .notes import FetchDoc, passages
+from .audit import audit
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class Issues(Protocol):
     def create(self, req: Requirement) -> int: ...
     def update(self, number: int, req: Requirement) -> None: ...
     def comment(self, number: int, body: str) -> None: ...
+    def close(self, number: int, comment: str) -> None: ...
 
 
 def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[str]]:
@@ -169,6 +171,23 @@ class SpecKeeper:
         state["last_suggested"] = time.time()
         self._save_watch(channel, thread_ts, state)
         return found
+
+    def reset_demo(self, user: str) -> dict:
+        """Back to a clean start for the next person trying the demo: requirements, proposals, versions
+        and watched threads cleared, their GitHub issues closed, the PRD rebuilt empty."""
+        reqs = self.store.requirements()
+        closed = 0
+        for r in reqs:
+            if self.issues and r.issue_number:
+                try:
+                    self.issues.close(r.issue_number, "Closed: the Spec Keeper demo was reset in Slack.")
+                    closed += 1
+                except Exception:
+                    log.exception("couldn't close issue %s", r.issue_number)
+        self.store.clear()
+        self.publish_prd()
+        audit("demo_reset", user=user, requirements=len(reqs), issues_closed=closed)
+        return {"requirements": len(reqs), "issues": closed}
 
     def not_a_change(self, channel: str, thread_ts: str, user: str, summary: str) -> None:
         """A false alarm, kept for the evals' false-alarm rate."""
