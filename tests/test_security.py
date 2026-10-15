@@ -15,6 +15,7 @@ from speckeeper.extract import DATA, PROMPT, thread_text
 from speckeeper.integrations import GitHubIssues, no_mentions
 from speckeeper.main import create_app
 from speckeeper.models import AcceptanceCriterion, Proposal, Requirement, Source
+from speckeeper.store import MemoryStore
 
 
 def rebuilt(app: App, **changes) -> App:
@@ -124,9 +125,14 @@ def test_N_20_a_spent_daily_budget_pauses_gemini_with_a_clear_message(monkeypatc
     monkeypatch.setattr(budget, "DAILY_TOKENS", 100)
     budget._state.update(day=budget._today(), used=100, warned=False)
     try:
-        app = App(asker=Asker())
+        from test_agent_callbacks import llm
+
+        from speckeeper.agent import Asker as AgentAsker
+
+        flash = llm("flash", "never sent")
+        app = App(asker=AgentAsker(MemoryStore(), flash))
         app.mention("why is the limit 25 MB?")
-        assert "AI budget is used up" in app.slack.posted("chat.update")[-1]["text"] and app.svc.asker.questions == []
+        assert "AI budget is used up" in app.slack.posted("chat.update")[-1]["text"] and flash.requests == []
     finally:
         budget._state.update(used=0, warned=False)
 

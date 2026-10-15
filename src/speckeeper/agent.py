@@ -10,15 +10,22 @@ Develop and debug it on its own with the ADK web UI: `uv run adk web agents`.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from google.adk.agents import Agent
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.registry import LLMRegistry
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
+from . import budget
+from .audit import audit
 from .models import Requirement, Source
 from .store import Store
 
@@ -104,13 +111,98 @@ def build_tools(store: Store) -> list:
     return [list_requirements, get_requirement, get_history]
 
 
-def build_agent(store: Store, model: str) -> Agent:
+TOOLS = {"list_requirements", "get_requirement", "get_history"}
+KEY = re.compile(r"REQ-\d{1,5}", re.IGNORECASE)
+ON_FALLBACK = "temp:on_fallback"  # temp: state lasts one question and is never saved to the session
+
+
+def rate_limited(e: Exception) -> bool:
+    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)
+
+
+def _count(response, model: str) -> None:
+    """Every agent model call counts against the daily budget, like capture and triage do."""
+    u = response.usage_metadata if response else None
+    if u:
+        logging.getLogger("speckeeper.usage").info(
+            "agent model=%s input=%s output=%s thinking=%s", model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
+        )
+        budget.spend((u.prompt_token_count or 0) + (u.candidates_token_count or 0) + (u.thoughts_token_count or 0))
+
+
+def guardrails(model: str, fallback: str | BaseLlm = "") -> dict:
+    """The agent's guardrails as ADK callbacks, so they hold wherever the agent runs: Slack, `adk web`
+    and the eval.
+
+    - before each model call: the daily token budget, and the fallback model once a question has moved to it
+    - after each model call: tokens counted and logged
+    - before each tool call: only our three tools, and keys that look like REQ-7
+    - after each tool call: one audit line (tool, arguments, who asked, found or not; never the result)
+    - on a model error: a rate limit moves the question to the fallback model, keeping what it has looked up"""
+    backup: list[BaseLlm] = []
+
+    def fallback_llm() -> BaseLlm:
+        if not backup:
+            backup.append(fallback if isinstance(fallback, BaseLlm) else LLMRegistry.new_llm(fallback))
+        return backup[0]
+
+    async def ask_fallback(llm_request):
+        llm = fallback_llm()
+        llm_request.model = llm.model
+        response = None
+        async for part in llm.generate_content_async(llm_request):
+            response = part  # not streaming, so this is the whole answer
+        return response
+
+    async def before_model(callback_context, llm_request):
+        budget.spend_check()  # raises BudgetExceeded, which Slack turns into the "budget used up" reply
+        if callback_context.state.get(ON_FALLBACK):
+            response = await ask_fallback(llm_request)
+            _count(response, fallback_llm().model)  # ADK skips after_model for a response returned here
+            return response
+        return None
+
+    def after_model(callback_context, llm_response):
+        _count(llm_response, model)
+
+    async def on_model_error(callback_context, llm_request, error):
+        if not fallback or not rate_limited(error) or callback_context.state.get(ON_FALLBACK):
+            return None
+        audit("model_fallback", "WARNING", model=model, fallback=fallback_llm().model, user=callback_context.user_id)
+        callback_context.state[ON_FALLBACK] = True
+        return await ask_fallback(llm_request)  # after_model counts its tokens
+
+    def before_tool(tool, args, tool_context):
+        key = args.get("key")
+        if tool.name in TOOLS and (key is None or KEY.fullmatch(str(key).strip())):
+            return None
+        audit("agent_tool_refused", "WARNING", tool=tool.name, args={k: str(v)[:60] for k, v in args.items()}, user=tool_context.user_id)
+        return {"error": "Not allowed. Requirement keys look like REQ-7."}
+
+    def after_tool(tool, args, tool_context, tool_response):
+        text = json.dumps(tool_response, default=str)
+        found = not text.lstrip("[{").startswith('"error"')  # tools answer {"error": ...} or [{"error": ...}] when nothing matches
+        audit("agent_tool", "INFO", tool=tool.name, args=args, user=tool_context.user_id, found=found, size=len(text))
+        return None
+
+    return {
+        "before_model_callback": before_model,
+        "after_model_callback": after_model,
+        "on_model_error_callback": on_model_error,
+        "before_tool_callback": before_tool,
+        "after_tool_callback": after_tool,
+    }
+
+
+def build_agent(store: Store, model: str | BaseLlm, fallback: str | BaseLlm = "") -> Agent:
+    name = model if isinstance(model, str) else model.model
     return Agent(
         name="speckeeper",
         description="Answers questions about the team's requirements, their history and CI status, with sources.",
         model=model,
         instruction=INSTRUCTION,
         tools=build_tools(store),
+        **guardrails(name, fallback if fallback != model else ""),
     )
 
 
@@ -121,34 +213,22 @@ def use_vertex(project: str, location: str) -> None:
     os.environ.setdefault("GOOGLE_CLOUD_LOCATION", location)
 
 
-def rate_limited(e: Exception) -> bool:
-    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)
-
-
 class Asker:
     """Runs the agent for one question at a time. Each question gets a fresh session: answers come
     from the store, not from earlier chat, so two people asking get the same facts.
 
-    Questions run on Flash (lookup and summary need no more); if a model is rate limited (429, common
-    with preview models' small quotas) the question is asked once more on the fallback model."""
+    Questions run on Flash (lookup and summary need no more). The guardrail callbacks move a question
+    to the fallback model on a rate limit (429, common with preview models' small quotas)."""
 
-    def __init__(self, store: Store, model: str, fallback: str = "") -> None:
-        self.runners = [InMemoryRunner(agent=build_agent(store, m), app_name="speckeeper") for m in dict.fromkeys([model, fallback or model])]
+    def __init__(self, store: Store, model: str | BaseLlm, fallback: str | BaseLlm = "") -> None:
+        self.runner = InMemoryRunner(agent=build_agent(store, model, fallback), app_name="speckeeper")
 
-    async def _run(self, runner: InMemoryRunner, question: str, user: str) -> str:
+    async def ask(self, question: str, user: str = "slack") -> str:
+        runner = self.runner
         session = await runner.session_service.create_session(app_name="speckeeper", user_id=user, session_id=uuid.uuid4().hex)
         message = types.Content(role="user", parts=[types.Part(text=question)])
         answer = ""
         async for event in runner.run_async(user_id=user, session_id=session.id, new_message=message):
             if event.is_final_response() and event.content and event.content.parts:
                 answer = "".join(p.text or "" for p in event.content.parts)
-        return answer
-
-    async def ask(self, question: str, user: str = "slack") -> str:
-        for i, runner in enumerate(self.runners):
-            try:
-                return await self._run(runner, question, user) or "I couldn't find an answer in the requirements."
-            except Exception as e:
-                if not rate_limited(e) or i == len(self.runners) - 1:
-                    raise
-        return ""
+        return answer or "I couldn't find an answer in the requirements."

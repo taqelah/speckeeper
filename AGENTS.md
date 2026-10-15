@@ -54,7 +54,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
 | `src/speckeeper/service.py` | What Spec Keeper does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
 | `src/speckeeper/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |
-| `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback |
+| `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback. Guardrails are ADK callbacks (`guardrails()`): budget before each model call, tokens after, tool checks and audit, fallback on a rate limit |
 | `src/speckeeper/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
 | `src/speckeeper/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
 | `src/speckeeper/cards.py` | Block Kit: approval, baseline, change and decided cards |
@@ -101,7 +101,7 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 ## Testing
 
 - `pytest`, fakes only. `tests/test_core.py` (service), `test_meeting.py` (meetings, versions,
-  changes), `test_agent.py` (ADK tools, fallback), `test_app.py` (HTTP basics), `test_e2e.py`
+  changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted model, no network), `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
 - **End-to-end tests** send Slack-signed requests through the real FastAPI and Bolt app. Slack is a
   local fake HTTP server (`FakeSlack`) that answers the Web API and records every call; Bolt builds
@@ -130,6 +130,9 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   (`GEMINI_LOCATION`) for Gemini 3.x; Cloud Run and Firestore stay in asia-southeast1.
 - **Preview model quotas are small.** `gemini-3.1-pro-preview` returns 429 under light load; capture
   and questions retry once on the other model. Raise the quota before the demo.
+- **ADK skips `after_model_callback` when `before_model_callback` returns a response.** The fallback
+  path answers from `before_model`, so it counts its own tokens there. `temp:` state lasts one question
+  and isn't saved, which is why a question stays on the fallback but the next one starts on Flash.
 - **Google blocks the gcloud login from asking for Docs or Drive scopes.** Read and write Google docs
   as the `speckeeper` service account (impersonation locally, the service's identity on Cloud Run).
 - **Slack private channels** need `groups:history`, `groups:read` and the `message.groups` event,
