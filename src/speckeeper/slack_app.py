@@ -5,6 +5,8 @@ response (deploy with --no-cpu-throttling)."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
 import re
 import time
@@ -14,14 +16,26 @@ from zoneinfo import ZoneInfo
 
 from slack_bolt.async_app import AsyncApp
 
-import json
-
-from .cards import (
-    APPROVE, APPROVE_ALL, DISMISS, DISMISS_ALL, EDIT, IGNORE_SUGGESTION, REVIEW_EACH, REVIEW_SUGGESTION,
-    _esc, approval_card, baseline_card, change_card, decided_card, decided_group_card, defang, suggestion_card,
-)
 from .audit import audit
 from .budget import BudgetExceeded
+from .cards import (
+    APPROVE,
+    APPROVE_ALL,
+    DISMISS,
+    DISMISS_ALL,
+    EDIT,
+    IGNORE_SUGGESTION,
+    REVIEW_EACH,
+    REVIEW_SUGGESTION,
+    _esc,
+    approval_card,
+    baseline_card,
+    change_card,
+    decided_card,
+    decided_group_card,
+    defang,
+    suggestion_card,
+)
 from .models import Source
 from .notes import FetchDoc, doc_id_in
 from .service import SpecKeeper
@@ -42,6 +56,7 @@ def _when(iso: str) -> str:
         return "they were captured"
     return datetime.fromisoformat(iso).astimezone(ZoneInfo(TZ)).strftime("%b %d, %H:%M")
 
+
 HELP = (
     "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
     "share a meeting notes link with me (`@Spec Keeper <link>`) to capture everything the meeting agreed, "
@@ -51,8 +66,16 @@ HELP = (
 
 
 def build_slack_app(
-    token: str, signing_secret: str, svc: SpecKeeper, fetch_doc: FetchDoc | None = None, client=None, wait: bool = False,
-    quiet: float = 15, approvers: tuple[str, ...] = (), per_user: int = 10, per_seconds: float = 600,
+    token: str,
+    signing_secret: str,
+    svc: SpecKeeper,
+    fetch_doc: FetchDoc | None = None,
+    client=None,
+    wait: bool = False,
+    quiet: float = 15,
+    approvers: tuple[str, ...] = (),
+    per_user: int = 10,
+    per_seconds: float = 600,
     demo_channels: tuple[str, ...] = (),
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
@@ -81,7 +104,9 @@ def build_slack_app(
         if wait_s:
             audit("rate_limited", "WARNING", user=user, channel=channel)
             await client.chat_postEphemeral(
-                channel=channel, user=user, thread_ts=thread_ts,
+                channel=channel,
+                user=user,
+                thread_ts=thread_ts,
                 text=f"That's {per_user} requests in {int(per_seconds // 60)} minutes. Try again in about {max(1, wait_s // 60)} min.",
             )
         return bool(wait_s)
@@ -93,7 +118,8 @@ def build_slack_app(
             return True
         audit("decision_refused", "WARNING", user=user, action=body["actions"][0]["action_id"], channel=body["channel"]["id"])
         await client.chat_postEphemeral(
-            channel=body["channel"]["id"], user=user,
+            channel=body["channel"]["id"],
+            user=user,
             text="Only " + ", ".join(f"<@{u}>" for u in approvers) + " can approve or dismiss requirements here. Ask them to take a look.",
         )
         return False
@@ -146,7 +172,8 @@ def build_slack_app(
             await asyncio.to_thread(svc.mute, channel, thread_ts, first == "mute", event["ts"])
             note = (
                 "Muted: I won't suggest captures in this thread. `@Spec Keeper unmute` turns it back on."
-                if first == "mute" else "Unmuted: I'll suggest a capture here when a requirement changes."
+                if first == "mute"
+                else "Unmuted: I'll suggest a capture here when a requirement changes."
             )
             await say(text=note, thread_ts=thread_ts)
             return
@@ -194,10 +221,8 @@ def build_slack_app(
         for m in raw:
             link = ""
             if links:
-                try:
+                with contextlib.suppress(Exception):
                     link = (await client.chat_getPermalink(channel=channel, message_ts=m["ts"]))["permalink"]
-                except Exception:
-                    pass
             when = datetime.fromtimestamp(float(m["ts"]), ZoneInfo(TZ)).strftime("%b %d %H:%M")
             messages.append(
                 Source(ts=m["ts"], user=m.get("user", ""), text=m.get("text", ""), permalink=link, label=f"{names.get(m.get('user', ''), 'someone')}, {when}")
@@ -243,7 +268,8 @@ def build_slack_app(
             text = (
                 "I couldn't open those notes. Share the doc with Spec Keeper's service account (Viewer) and try again."
                 if unreadable
-                else "Those notes are too long for me to read in one go." if type(e).__name__ == "NotesTooLong"
+                else "Those notes are too long for me to read in one go."
+                if type(e).__name__ == "NotesTooLong"
                 else failed(e, "read those notes")
             )
             await client.chat_update(channel=channel, ts=working["ts"], text=text)
@@ -254,9 +280,11 @@ def build_slack_app(
             pending = [p for p in result.proposals if p.status == "pending"]
             if pending:
                 # The old card may be lost in the channel or its buttons dead: post a fresh one here.
-                note = f"These notes haven't changed since they were captured; {len(pending)} still waiting for approval" + (
-                    f" ({len(approved)} already approved: {', '.join(approved)})" if approved else ""
-                ) + "."
+                note = (
+                    f"These notes haven't changed since they were captured; {len(pending)} still waiting for approval"
+                    + (f" ({len(approved)} already approved: {', '.join(approved)})" if approved else "")
+                    + "."
+                )
                 await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=baseline_card(result.group_id, result.title, pending, []))
                 for p in pending:
                     svc.set_card(p.id, working["ts"])
@@ -275,15 +303,24 @@ def build_slack_app(
         if result.status == "changed":
             since = _when(result.captured_at)
             if not result.proposals:
-                await client.chat_update(channel=channel, ts=working["ts"], text=f"The notes were edited since {since}, but nothing new or different was agreed.")
+                await client.chat_update(
+                    channel=channel, ts=working["ts"], text=f"The notes were edited since {since}, but nothing new or different was agreed."
+                )
                 return
             changes = [p for p in result.proposals if p.kind == "change"]
             new = [p for p in result.proposals if p.kind == "new"]
             parts = ([f"{len(new)} new requirement" + ("s" if len(new) != 1 else "")] if new else []) + [f"a change to {p.target}" for p in changes]
-            await client.chat_update(channel=channel, ts=working["ts"], text=f":pencil2: The notes were edited since {since}: " + ", ".join(parts) + ". Cards below.")
+            await client.chat_update(
+                channel=channel, ts=working["ts"], text=f":pencil2: The notes were edited since {since}: " + ", ".join(parts) + ". Cards below."
+            )
             for p in result.proposals:
                 blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
-                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Change from the meeting notes" if p.kind == "change" else "New requirement from the meeting notes", blocks=blocks)
+                res = await client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text="Change from the meeting notes" if p.kind == "change" else "New requirement from the meeting notes",
+                    blocks=blocks,
+                )
                 svc.set_card(p.id, res["ts"])
             return
 
@@ -291,14 +328,18 @@ def build_slack_app(
             await client.chat_update(channel=channel, ts=working["ts"], text="I didn't find agreed requirements in those notes.")
             return
         await client.chat_update(
-            channel=channel, ts=working["ts"], text=f"Captured {len(result.proposals)} requirements from {_esc(result.title)}",
+            channel=channel,
+            ts=working["ts"],
+            text=f"Captured {len(result.proposals)} requirements from {_esc(result.title)}",
             blocks=baseline_card(result.group_id, result.title, result.proposals, result.questions),
         )
 
     STALE = "This card is from before Spec Keeper restarted, so its requirements are gone. Capture the notes again."
 
     async def stale(client, body) -> None:
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}])
+        await client.chat_update(
+            channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}]
+        )
 
     def prd_link(text: str = "the PRD") -> str:
         doc_id = getattr(svc.prd, "doc_id", "")
@@ -339,7 +380,11 @@ def build_slack_app(
         keys = ", ".join(p.requirement.key for p in done)
         audit("approved", user=user, requirements=keys, prd_version=version, group=gid)
         issues = sum(1 for p in done if p.requirement.issue_number)
-        note = f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}." + (f" Written to {prd_link()}." if svc.prd else "") + (f" {issues_link(issues)} opened." if issues else "")
+        note = (
+            f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}."
+            + (f" Written to {prd_link()}." if svc.prd else "")
+            + (f" {issues_link(issues)} opened." if issues else "")
+        )
         await client.chat_update(
             channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), done, note)
         )
@@ -371,7 +416,9 @@ def build_slack_app(
         gone = [p for p in (svc.dismiss(p.id, user) for p in svc.store.proposals_in_group(gid)) if p]
         audit("dismissed", user=user, proposals=len(gone), group=gid)
         note = f"Dismissed by <@{user}>. Nothing was written."
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), gone, note))
+        await client.chat_update(
+            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), gone, note)
+        )
 
     @app.action(APPROVE)
     async def on_approve(ack, body, client):
@@ -400,7 +447,11 @@ def build_slack_app(
             kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
             await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
             return
-        note = f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}." + (f" Added to {prd_link()}." if svc.prd else "") + (f" Opened {issue_link(r.issue_number)}." if r.issue_number else "")
+        note = (
+            f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}."
+            + (f" Added to {prd_link()}." if svc.prd else "")
+            + (f" Opened {issue_link(r.issue_number)}." if r.issue_number else "")
+        )
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
 
     @app.action(DISMISS)
@@ -477,7 +528,9 @@ def build_slack_app(
             return
         note = f"<@{user}> is reviewing this: cards below."
         await client.chat_update(
-            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text=note,
             blocks=[body["message"]["blocks"][0], {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}],
         )
         await capture(client, v["c"], v["t"], mention_ts="", only=v.get("m"))
@@ -489,7 +542,9 @@ def build_slack_app(
         await asyncio.to_thread(svc.not_a_change, v["c"], v["t"], user, v["s"])
         note = f"<@{user}> marked this as not a change. I'll keep listening."
         await client.chat_update(
-            channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text=note,
             blocks=[body["message"]["blocks"][0], {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}],
         )
 

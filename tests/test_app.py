@@ -9,8 +9,20 @@ from speckeeper.store import MemoryStore
 
 
 def settings(**kw):
-    base = dict(slack_bot_token="xoxb-test", slack_signing_secret="secret", gcp_project="p", gcp_location="l", gemini_location="global", pro_model="m",
-                flash_model="m", prd_doc_id="", github_token="", github_repo="", ci_secret="s3cret", store="memory")
+    base = dict(
+        slack_bot_token="xoxb-test",
+        slack_signing_secret="secret",
+        gcp_project="p",
+        gcp_location="l",
+        gemini_location="global",
+        pro_model="m",
+        flash_model="m",
+        prd_doc_id="",
+        github_token="",
+        github_repo="",
+        ci_secret="s3cret",
+        store="memory",
+    )
     return Settings(**{**base, **kw})
 
 
@@ -29,7 +41,9 @@ def test_ci_rejects_a_wrong_secret():
 
 
 def test_ci_with_no_matching_requirements_posts_nothing():
-    res = client().post("/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites><testcase name='x'/></testsuites>"}, headers={"X-SpecKeeper-Secret": "s3cret"})
+    res = client().post(
+        "/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites><testcase name='x'/></testsuites>"}, headers={"X-SpecKeeper-Secret": "s3cret"}
+    )
     assert res.json() == {"requirements": [], "unmapped": ["x"]}
 
 

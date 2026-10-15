@@ -66,7 +66,9 @@ def status_strip(svc) -> str:
 
 
 def landing(s: Settings, status: str = "") -> str:
-    q = lambda v: html.escape(v, quote=True)
+    def q(v):
+        return html.escape(v, quote=True)
+
     repo = s.source_repo or "https://github.com/taqelah/speckeeper"
     ctas = _link(s.demo_slack_invite, "Join our Slack to try it", "primary", SLACK_MARK) + _link(s.demo_video_url, "Watch the demo", "ghost")
     if not ctas:
@@ -78,7 +80,8 @@ def landing(s: Settings, status: str = "") -> str:
         notes_cmd=(
             f'<span class="cmd"><code>@Spec Keeper {html.escape(s.demo_notes_url)}</code>'
             f'<button type="button" class="copy" data-copy="{q("@Spec Keeper " + s.demo_notes_url)}">Copy</button></span>'
-            if s.demo_notes_url.startswith("https://") else " post <code>@Spec Keeper</code> with the pinned kickoff notes link."
+            if s.demo_notes_url.startswith("https://")
+            else " post <code>@Spec Keeper</code> with the pinned kickoff notes link."
         ),
         limit=f"Each person can make {s.requests_per_user} requests every {minutes} minutes",
         prd=q(f"https://docs.google.com/document/d/{s.prd_doc_id}/edit" if s.prd_doc_id else repo),

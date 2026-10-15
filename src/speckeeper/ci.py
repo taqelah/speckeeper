@@ -9,8 +9,9 @@ is marked stale instead of passing.
 from __future__ import annotations
 
 import re
-from defusedxml.ElementTree import fromstring  # no entity expansion or external entities
 from dataclasses import dataclass
+
+from defusedxml.ElementTree import fromstring  # no entity expansion or external entities
 
 from .models import Requirement
 

@@ -8,20 +8,20 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import time
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
 from slack_sdk.web.async_client import AsyncWebClient
+from test_meeting import DOC, NOTES, FakeIssues, FakePRD
 
 from speckeeper.config import Settings
 from speckeeper.main import create_app
 from speckeeper.service import SpecKeeper
 from speckeeper.store import MemoryStore
-from test_meeting import DOC, NOTES, FakeIssues, FakePRD
 
 SECRET = "signing-secret"
 CI = "ci-secret"
@@ -95,21 +95,44 @@ class FakeSlack:
 
 def settings() -> Settings:
     return Settings(
-        slack_bot_token="xoxb-test", slack_signing_secret=SECRET, gcp_project="p", gcp_location="l", gemini_location="global",
-        pro_model="m", flash_model="m", prd_doc_id="", github_token="", github_repo="", ci_secret=CI, store="memory",
+        slack_bot_token="xoxb-test",
+        slack_signing_secret=SECRET,
+        gcp_project="p",
+        gcp_location="l",
+        gemini_location="global",
+        pro_model="m",
+        flash_model="m",
+        prd_doc_id="",
+        github_token="",
+        github_repo="",
+        ci_secret=CI,
+        store="memory",
     )
 
 
 KICKOFF = {
     "requirements": [
-        {"title": "Receipt uploads are limited to 25 MB", "acceptance_criteria": [{"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"}], "source_ts": ["__limit__"]},
-        {"title": "Every upload is virus-scanned before it is stored", "acceptance_criteria": [{"given": "an infected file", "when": "uploaded", "then": "it is rejected"}], "source_ts": ["__scan__"]},
+        {
+            "title": "Receipt uploads are limited to 25 MB",
+            "acceptance_criteria": [{"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"}],
+            "source_ts": ["__limit__"],
+        },
+        {
+            "title": "Every upload is virus-scanned before it is stored",
+            "acceptance_criteria": [{"given": "an infected file", "when": "uploaded", "then": "it is rejected"}],
+            "source_ts": ["__scan__"],
+        },
     ],
     "open_questions": ["Should photos be compressed on the phone?"],
 }
 CHANGE = {
     "requirements": [
-        {"title": "Receipt uploads are limited to 10 MB", "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "show 'File exceeds 10 MB'"}], "source_ts": ["200.1"], "changes": "REQ-7"}
+        {
+            "title": "Receipt uploads are limited to 10 MB",
+            "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "show 'File exceeds 10 MB'"}],
+            "source_ts": ["200.1"],
+            "changes": "REQ-7",
+        }
     ],
     "open_questions": [],
 }
@@ -168,7 +191,9 @@ class App:
     def signed(self, body: str, content_type: str, at: int | None = None, secret: str = SECRET):
         ts = at or int(time.time())
         sig = "v0=" + hmac.new(secret.encode(), f"v0:{ts}:{body}".encode(), hashlib.sha256).hexdigest()
-        return self.http.post("/slack/events", content=body, headers={"Content-Type": content_type, "X-Slack-Request-Timestamp": str(ts), "X-Slack-Signature": sig})
+        return self.http.post(
+            "/slack/events", content=body, headers={"Content-Type": content_type, "X-Slack-Request-Timestamp": str(ts), "X-Slack-Signature": sig}
+        )
 
     def mention(self, text: str, ts="100.1", thread_ts=None, **kw):
         self._event += 1
@@ -185,9 +210,16 @@ class App:
 
     def click(self, action_id: str, value: str, message: dict):
         payload = {
-            "type": "block_actions", "user": {"id": "UMAYA", "name": "maya"}, "team": {"id": "T1"}, "api_app_id": "A1",
-            "channel": {"id": "C1"}, "message": message, "container": {"type": "message", "message_ts": message["ts"]},
-            "trigger_id": "t", "token": "x", "actions": [{"action_id": action_id, "value": value, "type": "button", "block_id": "b"}],
+            "type": "block_actions",
+            "user": {"id": "UMAYA", "name": "maya"},
+            "team": {"id": "T1"},
+            "api_app_id": "A1",
+            "channel": {"id": "C1"},
+            "message": message,
+            "container": {"type": "message", "message_ts": message["ts"]},
+            "trigger_id": "t",
+            "token": "x",
+            "actions": [{"action_id": action_id, "value": value, "type": "button", "block_id": "b"}],
         }
         return self.signed("payload=" + urllib.parse.quote(json.dumps(payload)), "application/x-www-form-urlencoded")
 
@@ -365,7 +397,10 @@ def test_N_06_a_gemini_failure_during_capture_gets_a_clear_message():
 
 
 def test_N_07_uncited_requirements_are_dropped_and_said_so():
-    invented = {"requirements": [{"title": "Invented", "acceptance_criteria": [{"given": "a", "when": "b", "then": "c"}], "source_ts": ["9.9"]}], "open_questions": []}
+    invented = {
+        "requirements": [{"title": "Invented", "acceptance_criteria": [{"given": "a", "when": "b", "then": "c"}], "source_ts": ["9.9"]}],
+        "open_questions": [],
+    }
     app = App(Gemini(invented), thread=[{"ts": "1.1", "user": "UMAYA", "text": "Nice weather."}])
     app.mention("capture this", ts="1.2", thread_ts="1.1")
     assert "didn't find an agreed requirement" in app.slack.posted("chat.update")[-1]["text"]
@@ -420,11 +455,14 @@ def test_C_02_the_capture_mention_itself_is_not_read_as_part_of_the_thread():
     assert "capture this" not in gemini.prompts[0]
 
 
-@pytest.mark.parametrize("link", [
-    f"<https://docs.google.com/document/d/{DOC}/edit>",
-    f"<https://docs.google.com/document/d/{DOC}/edit?usp=sharing|notes>",
-    f"<https://docs.google.com/document/d/{DOC}/view?tab=t.0>",
-])
+@pytest.mark.parametrize(
+    "link",
+    [
+        f"<https://docs.google.com/document/d/{DOC}/edit>",
+        f"<https://docs.google.com/document/d/{DOC}/edit?usp=sharing|notes>",
+        f"<https://docs.google.com/document/d/{DOC}/view?tab=t.0>",
+    ],
+)
 def test_C_03_meeting_note_links_in_any_common_form_are_recognised(link):
     app = App()
     app.mention(f"capture {link}")
@@ -485,7 +523,17 @@ class EditableNotes:
 
 def test_C_09_edited_notes_that_change_a_limit_give_a_change_card():
     notes = EditableNotes()
-    change = {"requirements": [{"title": "Receipt uploads are limited to 20 MB", "acceptance_criteria": [{"given": "a 25 MB file", "when": "uploaded", "then": "show 'File exceeds 20 MB'"}], "source_ts": ["__limit__"], "changes": "REQ-7"}], "open_questions": []}
+    change = {
+        "requirements": [
+            {
+                "title": "Receipt uploads are limited to 20 MB",
+                "acceptance_criteria": [{"given": "a 25 MB file", "when": "uploaded", "then": "show 'File exceeds 20 MB'"}],
+                "source_ts": ["__limit__"],
+                "changes": "REQ-7",
+            }
+        ],
+        "open_questions": [],
+    }
     gemini = Gemini(KICKOFF, change)
     app = App(gemini, fetch=notes)
     kickoff_approved(app)
@@ -500,14 +548,23 @@ def test_C_09_edited_notes_that_change_a_limit_give_a_change_card():
 
 def test_C_10_edited_notes_with_a_new_decision_give_one_new_card():
     notes = EditableNotes()
-    added = {"requirements": [{"title": "Receipts can be uploaded as HEIC photos", "acceptance_criteria": [{"given": "a HEIC photo", "when": "uploaded", "then": "it is accepted"}], "source_ts": ["__scan__"]}], "open_questions": []}
+    added = {
+        "requirements": [
+            {
+                "title": "Receipts can be uploaded as HEIC photos",
+                "acceptance_criteria": [{"given": "a HEIC photo", "when": "uploaded", "then": "it is accepted"}],
+                "source_ts": ["__scan__"],
+            }
+        ],
+        "open_questions": [],
+    }
     app = App(Gemini(KICKOFF, added), fetch=notes)
     kickoff_approved(app)
     notes.text = NOTES + "* HEIC photos: agreed to accept HEIC receipts. (00:41:00)\n"
     before = len(app.slack.posted("chat.postMessage"))
     app.mention(f"capture {LINK}", ts="101.1")
     assert "1 new requirement" in app.slack.posted("chat.update")[-1]["text"]
-    cards = app.slack.posted("chat.postMessage")[before + 1:]
+    cards = app.slack.posted("chat.postMessage")[before + 1 :]
     assert len(cards) == 1 and "HEIC" in json.dumps(cards[0]["blocks"])
 
 

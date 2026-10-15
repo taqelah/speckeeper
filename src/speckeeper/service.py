@@ -13,14 +13,14 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal, Protocol
 
 from . import ci
+from .audit import audit
 from .extract import Generate, Suggestion, extract, triage
 from .models import Proposal, Requirement, Source
 from .notes import FetchDoc, passages
-from .audit import audit
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class NotesTooLong(ValueError):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 @dataclass
@@ -85,7 +85,17 @@ def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[
         status = "stale" if prev and prev.last_test else "none"
         if status == "stale":
             stale.append(key)
-        acs.append(ac.model_copy(update={"key": key, "version": version, "ci_status": status, "last_test": prev.last_test if prev else "", "last_run": prev.last_run if prev else ""}))
+        acs.append(
+            ac.model_copy(
+                update={
+                    "key": key,
+                    "version": version,
+                    "ci_status": status,
+                    "last_test": prev.last_test if prev else "",
+                    "last_run": prev.last_run if prev else "",
+                }
+            )
+        )
     sources = old.sources + [s for s in new.sources if s not in old.sources]
     changed = old.model_copy(update={"title": new.title, "version": version, "acs": acs, "sources": sources, "status": "approved"})
     return changed, stale
@@ -93,8 +103,14 @@ def apply_change(old: Requirement, new: Requirement) -> tuple[Requirement, list[
 
 class SpecKeeper:
     def __init__(
-        self, store: Store, generate: Generate, prd: PRD | None = None, issues: Issues | None = None, asker=None,
-        triage_generate: Generate | None = None, min_confidence: float = 0.8,
+        self,
+        store: Store,
+        generate: Generate,
+        prd: PRD | None = None,
+        issues: Issues | None = None,
+        asker=None,
+        triage_generate: Generate | None = None,
+        min_confidence: float = 0.8,
     ) -> None:
         self.store = store
         self.generate = generate
@@ -112,8 +128,15 @@ class SpecKeeper:
         for seq, (req, changes) in enumerate(reqs):
             kind = "change" if changes else "new"
             p = Proposal(
-                id=uuid.uuid4().hex[:12], kind=kind, target=changes, requirement=req, channel=channel, thread_ts=thread_ts,
-                group_id=group_id, created_at=now, seq=seq,
+                id=uuid.uuid4().hex[:12],
+                kind=kind,
+                target=changes,
+                requirement=req,
+                channel=channel,
+                thread_ts=thread_ts,
+                group_id=group_id,
+                created_at=now,
+                seq=seq,
             )
             self.store.save_proposal(p)
             proposals.append(p)
@@ -237,9 +260,8 @@ class SpecKeeper:
         kept = []
         for p in proposals:
             target = approved.get(p.target)
-            same = (
-                (p.kind == "new" and _norm(p.requirement.title) in titles)
-                or (p.kind == "change" and target is not None and [_norm(a.gherkin) for a in target.acs] == [_norm(a.gherkin) for a in p.requirement.acs])
+            same = (p.kind == "new" and _norm(p.requirement.title) in titles) or (
+                p.kind == "change" and target is not None and [_norm(a.gherkin) for a in target.acs] == [_norm(a.gherkin) for a in p.requirement.acs]
             )
             if same:
                 p.status = "dismissed"

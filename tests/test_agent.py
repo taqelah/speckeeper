@@ -1,9 +1,10 @@
 """The ADK agent's tools read Spec Keeper's own store; no Gemini call here."""
 
+from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
+
 from speckeeper.agent import build_agent, build_tools
 from speckeeper.service import SpecKeeper
 from speckeeper.store import MemoryStore
-from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
 
 
 def test_tools_answer_from_the_store_including_change_history():
@@ -15,12 +16,26 @@ def test_tools_answer_from_the_store_including_change_history():
         calls.append(1)
         if len(calls) == 1:
             return generate(prompt, schema)
-        return {"requirements": [{"title": "Receipt uploads are limited to 10 MB", "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "rejected"}], "source_ts": ["2.1"], "changes": "REQ-7"}], "open_questions": []}
+        return {
+            "requirements": [
+                {
+                    "title": "Receipt uploads are limited to 10 MB",
+                    "acceptance_criteria": [{"given": "a 12 MB file", "when": "uploaded", "then": "rejected"}],
+                    "source_ts": ["2.1"],
+                    "changes": "REQ-7",
+                }
+            ],
+            "open_questions": [],
+        }
 
     svc = SpecKeeper(MemoryStore(first_req=7), gen, FakePRD(), FakeIssues())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "UMAYA")
-    (p,), _ = svc.capture("C1", "2.1", [Source(ts="2.1", user="UWEI", text="Storage bill doubled. Cap uploads at 10 MB.", label="Wei, Oct 15 16:02", permalink="https://slack/p1")])
+    (p,), _ = svc.capture(
+        "C1",
+        "2.1",
+        [Source(ts="2.1", user="UWEI", text="Storage bill doubled. Cap uploads at 10 MB.", label="Wei, Oct 15 16:02", permalink="https://slack/p1")],
+    )
     svc.approve(p.id, "UMAYA")
 
     list_requirements, get_requirement, get_history = build_tools(svc.store)
@@ -67,6 +82,16 @@ def test_history_puts_creation_before_a_change_with_the_same_timestamp():
     from speckeeper.models import Proposal, Requirement
     from speckeeper.store import _history_order
 
-    created = Proposal(id="a", kind="new", requirement=Requirement(key="REQ-7", title="25 MB"), channel="C", thread_ts="1", decided_at="2026-10-15T03:40:00.000+00:00")
-    changed = Proposal(id="b", kind="change", target="REQ-7", requirement=Requirement(key="REQ-7", title="10 MB", version=2), channel="C", thread_ts="2", decided_at="2026-10-15T03:40:00.000+00:00")
+    created = Proposal(
+        id="a", kind="new", requirement=Requirement(key="REQ-7", title="25 MB"), channel="C", thread_ts="1", decided_at="2026-10-15T03:40:00.000+00:00"
+    )
+    changed = Proposal(
+        id="b",
+        kind="change",
+        target="REQ-7",
+        requirement=Requirement(key="REQ-7", title="10 MB", version=2),
+        channel="C",
+        thread_ts="2",
+        decided_at="2026-10-15T03:40:00.000+00:00",
+    )
     assert [p.id for p in sorted([changed, created], key=_history_order)] == ["a", "b"]

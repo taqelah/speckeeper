@@ -27,8 +27,16 @@ def generate(prompt, schema):
     scan = [ts for text, ts in ids.items() if text.startswith("Virus scan")]
     return {
         "requirements": [
-            {"title": "Receipt uploads are limited to 25 MB", "acceptance_criteria": [{"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"}], "source_ts": limit},
-            {"title": "Every upload is virus-scanned before it is stored", "acceptance_criteria": [{"given": "an infected file", "when": "uploaded", "then": "it is rejected"}], "source_ts": scan},
+            {
+                "title": "Receipt uploads are limited to 25 MB",
+                "acceptance_criteria": [{"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"}],
+                "source_ts": limit,
+            },
+            {
+                "title": "Every upload is virus-scanned before it is stored",
+                "acceptance_criteria": [{"given": "an infected file", "when": "uploaded", "then": "it is rejected"}],
+                "source_ts": scan,
+            },
         ],
         "open_questions": ["Should photos be compressed on the phone?"],
     }
@@ -84,7 +92,7 @@ def test_a_later_approval_is_a_minor_version():
 
 def test_one_by_one_from_the_kickoff_is_still_the_baseline():
     svc = SpecKeeper(MemoryStore(first_req=7), generate, FakePRD())
-    gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    _gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     versions = [svc.approve(p.id, "UMAYA")[1] for p in proposals]
     assert versions == ["1.0.0", "1.0.0"]
     later, _ = svc.capture("C1", "2.1", passages(DOC, "Sync", NOTES))

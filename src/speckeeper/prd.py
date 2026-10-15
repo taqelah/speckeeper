@@ -61,7 +61,7 @@ def source_parts(req: Requirement) -> list[tuple[str, str, str]]:
             # "Kickoff · Oct 14, 2026, 00:06:45": only a clock time at the end is the time, not the date's comma.
             m = re.match(r"(.*), (\d{1,2}:\d{2}(?::\d{2})?)$", s.label)
             title, time = (m.group(1), m.group(2)) if m else (s.label, "")
-            link, times = meetings.setdefault(title, (s.permalink, []))
+            _link_kept, times = meetings.setdefault(title, (s.permalink, []))
             if time and time not in times:
                 times.append(time)
         else:
@@ -106,7 +106,10 @@ def _tests(req: Requirement) -> tuple[str, str]:
 
 def render(title: str, reqs: list[Requirement], releases: list[dict], version: str, repo: str = "", now: str = "") -> str:
     reqs = sorted((r for r in reqs if r.status == "approved"), key=lambda r: int(r.key.split("-")[1]))
-    issue = lambda n: _link(f"#{n}", f"https://github.com/{repo}/issues/{n}") if n and repo else (f"#{n}" if n else "–")
+
+    def issue(n):
+        return _link(f"#{n}", f"https://github.com/{repo}/issues/{n}") if n and repo else (f"#{n}" if n else "–")
+
     out = [
         f'<html><head><meta charset="utf-8"></head><body style="font-family:Arial;font-size:11pt;color:{INK}">',
         f'<p style="font-size:26pt;font-weight:bold;margin:0">{h(title)}</p>',
@@ -121,13 +124,17 @@ def render(title: str, reqs: list[Requirement], releases: list[dict], version: s
     if not reqs:
         out.append(f'<p style="color:{MUTED}">Nothing approved yet.</p>')
     else:
-        out.append('<table style="border-collapse:collapse;width:100%"><tr>'
-                   f'<th style="{_th("64pt")}">ID</th><th style="{_th()}">Requirement</th><th style="{_th("40pt")}">Ver.</th>'
-                   f'<th style="{_th("96pt")}">Tests in CI</th><th style="{_th("48pt")}">Issue</th></tr>')
+        out.append(
+            '<table style="border-collapse:collapse;width:100%"><tr>'
+            f'<th style="{_th("64pt")}">ID</th><th style="{_th()}">Requirement</th><th style="{_th("40pt")}">Ver.</th>'
+            f'<th style="{_th("96pt")}">Tests in CI</th><th style="{_th("48pt")}">Issue</th></tr>'
+        )
         for r in reqs:
             tests, color = _tests(r)
-            out.append(f'<tr><td style="{_td()};font-weight:bold;color:{BRAND}">{h(r.key)}</td><td style="{_td()}">{h(r.title)}</td>'
-                       f'<td style="{_td()}">v{r.version}</td><td style="{_td()};color:{color}">{h(tests)}</td><td style="{_td()}">{issue(r.issue_number)}</td></tr>')
+            out.append(
+                f'<tr><td style="{_td()};font-weight:bold;color:{BRAND}">{h(r.key)}</td><td style="{_td()}">{h(r.title)}</td>'
+                f'<td style="{_td()}">v{r.version}</td><td style="{_td()};color:{color}">{h(tests)}</td><td style="{_td()}">{issue(r.issue_number)}</td></tr>'
+            )
         out.append("</table>")
 
     out.append("<h1>Requirements</h1>")
@@ -138,23 +145,31 @@ def render(title: str, reqs: list[Requirement], releases: list[dict], version: s
         if sources:
             meta.append("Agreed in " + ", ".join(_link(label, link) + h(times) for label, times, link in sources))
         out.append(f'<p style="color:{MUTED};font-size:10pt">' + " · ".join(meta) + "</p>")
-        out.append('<table style="border-collapse:collapse;width:100%"><tr>'
-                   f'<th style="{_th("56pt")}">ID</th><th style="{_th()}">Given</th><th style="{_th()}">When</th>'
-                   f'<th style="{_th()}">Then</th><th style="{_th("72pt")}">CI</th></tr>')
+        out.append(
+            '<table style="border-collapse:collapse;width:100%"><tr>'
+            f'<th style="{_th("56pt")}">ID</th><th style="{_th()}">Given</th><th style="{_th()}">When</th>'
+            f'<th style="{_th()}">Then</th><th style="{_th("72pt")}">CI</th></tr>'
+        )
         for ac in r.acs:
             s = steps(ac.gherkin)
             cells = "".join(f'<td style="{_td()}">' + "<br>".join(h(x) for x in s[k]) + "</td>" for k in ("Given", "When", "Then"))
             out.append(f'<tr><td style="{_td()};font-family:Roboto Mono;font-size:10pt;font-weight:bold">{h(ac.key)}</td>{cells}{_ci_cell(ac, r.version)}</tr>')
         out.append("</table>")
-        out.append(f'<p style="color:{MUTED};font-size:9pt">Name tests <span style="font-family:Roboto Mono">{h(r.acs[0].key if r.acs else r.key)}@v{r.version}</span> … so CI results land here.</p>')
+        out.append(
+            f'<p style="color:{MUTED};font-size:9pt">Name tests <span style="font-family:Roboto Mono">{h(r.acs[0].key if r.acs else r.key)}@v{r.version}</span> … so CI results land here.</p>'
+        )
 
     out.append("<h1>Change history</h1>")
     if releases:
-        out.append('<table style="border-collapse:collapse;width:100%"><tr>'
-                   f'<th style="{_th("56pt")}">Version</th><th style="{_th("120pt")}">Approved</th><th style="{_th()}">Change</th><th style="{_th("80pt")}">By</th></tr>')
+        out.append(
+            '<table style="border-collapse:collapse;width:100%"><tr>'
+            f'<th style="{_th("56pt")}">Version</th><th style="{_th("120pt")}">Approved</th><th style="{_th()}">Change</th><th style="{_th("80pt")}">By</th></tr>'
+        )
         for rel in reversed(releases):
-            out.append(f'<tr><td style="{_td()};font-weight:bold">v{h(rel.get("version", ""))}</td><td style="{_td()}">{h(_when(rel.get("at", "")))}</td>'
-                       f'<td style="{_td()}">{h(rel.get("what", ""))}</td><td style="{_td()}">{h(rel.get("by", ""))}</td></tr>')
+            out.append(
+                f'<tr><td style="{_td()};font-weight:bold">v{h(rel.get("version", ""))}</td><td style="{_td()}">{h(_when(rel.get("at", "")))}</td>'
+                f'<td style="{_td()}">{h(rel.get("what", ""))}</td><td style="{_td()}">{h(rel.get("by", ""))}</td></tr>'
+            )
         out.append("</table>")
     else:
         out.append(f'<p style="color:{MUTED}">No releases yet.</p>')

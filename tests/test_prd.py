@@ -1,16 +1,26 @@
+from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
+
 from speckeeper.models import AcceptanceCriterion, Requirement, Source
 from speckeeper.prd import render, source_parts, steps
 from speckeeper.service import SpecKeeper
 from speckeeper.store import MemoryStore
-from test_meeting import FakeIssues, FakePRD, fetch, generate, DOC
 
 LABEL = "Checkout v2 kickoff · Meeting notes · Oct 14, 2026, 00:06:45"
 
 
 def req(**kw):
-    base = dict(key="REQ-7", title="Receipt upload size limit is 25 MB", status="approved", issue_number=18,
-                acs=[AcceptanceCriterion(key="AC-7-1", gherkin="Given a 30 MB file\nAnd the user is signed in\nWhen they upload it\nThen show 'File exceeds 25 MB'", ci_status="passing")],
-                sources=[Source(ts="n1", user="", text="x", kind="meeting", label=LABEL, permalink="https://docs.google.com/document/d/D/edit")])
+    base = dict(
+        key="REQ-7",
+        title="Receipt upload size limit is 25 MB",
+        status="approved",
+        issue_number=18,
+        acs=[
+            AcceptanceCriterion(
+                key="AC-7-1", gherkin="Given a 30 MB file\nAnd the user is signed in\nWhen they upload it\nThen show 'File exceeds 25 MB'", ci_status="passing"
+            )
+        ],
+        sources=[Source(ts="n1", user="", text="x", kind="meeting", label=LABEL, permalink="https://docs.google.com/document/d/D/edit")],
+    )
     base.update(kw)
     return Requirement(**base)
 
@@ -20,18 +30,40 @@ def test_a_meeting_title_with_a_comma_keeps_its_date_and_time_apart():
 
 
 def test_a_meeting_label_without_a_time_is_one_source_not_two():
-    r = req(sources=req().sources + [Source(ts="n2", user="", text="y", kind="meeting", label="Checkout v2 kickoff · Meeting notes · Oct 14, 2026", permalink="https://docs.google.com/document/d/D/edit")])
+    r = req(
+        sources=req().sources
+        + [
+            Source(
+                ts="n2",
+                user="",
+                text="y",
+                kind="meeting",
+                label="Checkout v2 kickoff · Meeting notes · Oct 14, 2026",
+                permalink="https://docs.google.com/document/d/D/edit",
+            )
+        ]
+    )
     assert source_parts(r) == [("Checkout v2 kickoff · Meeting notes · Oct 14, 2026", " (00:06:45)", "https://docs.google.com/document/d/D/edit")]
 
 
 def test_and_lines_join_the_step_before_them():
     assert steps("Given a 30 MB file\nAnd the user is signed in\nWhen they upload it\nThen show it") == {
-        "Given": ["a 30 MB file", "and the user is signed in"], "When": ["they upload it"], "Then": ["show it"]}
+        "Given": ["a 30 MB file", "and the user is signed in"],
+        "When": ["they upload it"],
+        "Then": ["show it"],
+    }
 
 
 def test_the_page_has_a_summary_criteria_tables_and_history():
-    page = render("Checkout v2", [req(), req(key="REQ-8", title="Old", status="dismissed")], [{"version": "1.0.0", "what": "kickoff", "by": "Syam", "at": "2026-10-15T04:43:00+00:00"}], "1.0.0", "acme/checkout", "2026-10-15T04:43:00+00:00")
-    assert "Summary" in page and "Change history" in page and "<b style=\"color:#2f6fde\">v1.0.0</b>" in page
+    page = render(
+        "Checkout v2",
+        [req(), req(key="REQ-8", title="Old", status="dismissed")],
+        [{"version": "1.0.0", "what": "kickoff", "by": "Syam", "at": "2026-10-15T04:43:00+00:00"}],
+        "1.0.0",
+        "acme/checkout",
+        "2026-10-15T04:43:00+00:00",
+    )
+    assert "Summary" in page and "Change history" in page and '<b style="color:#2f6fde">v1.0.0</b>' in page
     assert 'href="https://github.com/acme/checkout/issues/18"' in page and "All 1 passing" in page
     assert "15 Oct 2026, 12:43 SGT" in page and "Old" not in page  # only approved requirements
     assert "and the user is signed in" in page and "(00:06:45)" in page

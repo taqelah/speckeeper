@@ -35,7 +35,7 @@ class Settings:
     source_repo: str = "https://github.com/taqelah/speckeeper"
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         env = os.environ.get
         return cls(
             slack_bot_token=env("SLACK_BOT_TOKEN", ""),

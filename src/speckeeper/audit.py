@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def audit(event: str, severity: str = "NOTICE", **fields) -> None:
     entry = {
         "severity": severity,
         "message": f"audit {event}",
-        "audit": {"event": event, "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), **fields},
+        "audit": {"event": event, "at": datetime.now(UTC).isoformat(timespec="seconds"), **fields},
     }
     print(json.dumps(entry, default=str), file=sys.stdout, flush=True)

@@ -85,7 +85,13 @@ def build_tools(store: Store) -> list:
             if p.status != "approved":
                 continue
             when = datetime.fromisoformat(p.decided_at).astimezone(TZ).strftime("%b %d, %H:%M") if p.decided_at else ""
-            entry = {"event": "changed" if p.kind == "change" else "approved", "approved_by_slack_user": p.decided_by, "approved_at": when, "version_after": p.requirement.version, "now_says": p.requirement.title}
+            entry = {
+                "event": "changed" if p.kind == "change" else "approved",
+                "approved_by_slack_user": p.decided_by,
+                "approved_at": when,
+                "version_after": p.requirement.version,
+                "now_says": p.requirement.title,
+            }
             if p.previous:
                 entry["before"] = {"version": p.previous.version, "said": p.previous.title}
                 new_ts = {s.ts for s in p.requirement.sources} - {s.ts for s in p.previous.sources}

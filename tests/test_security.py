@@ -6,8 +6,8 @@ import json
 from dataclasses import replace
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
+from test_e2e import LINK, App, Asker, fetch_ok, junit, kickoff_approved, settings
 
 from speckeeper import budget, extract
 from speckeeper.cards import approval_card, defang
@@ -15,7 +15,6 @@ from speckeeper.extract import DATA, PROMPT, thread_text
 from speckeeper.integrations import GitHubIssues, no_mentions
 from speckeeper.main import create_app
 from speckeeper.models import AcceptanceCriterion, Proposal, Requirement, Source
-from test_e2e import CI, LINK, App, Asker, fetch_ok, junit, kickoff_approved, settings
 
 
 def rebuilt(app: App, **changes) -> App:
@@ -65,8 +64,12 @@ def test_N_14_long_threads_keep_the_newest_messages():
 
 
 def test_N_15_slack_specials_in_captured_text_are_escaped():
-    req = Requirement(key="", title="<!channel> uploads <https://evil.test|click>", acs=[AcceptanceCriterion(key="", gherkin="Given <!here>\nWhen x\nThen y")],
-                      sources=[Source(ts="1.1", user="U1", text="t", label="Maya|<!everyone>, Oct 15 10:00", permalink="https://slack.test/p1")])
+    req = Requirement(
+        key="",
+        title="<!channel> uploads <https://evil.test|click>",
+        acs=[AcceptanceCriterion(key="", gherkin="Given <!here>\nWhen x\nThen y")],
+        sources=[Source(ts="1.1", user="U1", text="t", label="Maya|<!everyone>, Oct 15 10:00", permalink="https://slack.test/p1")],
+    )
     card = json.dumps(approval_card(Proposal(id="p", requirement=req, channel="C", thread_ts="1.1")))
     assert "<!channel>" not in card and "<!here>" not in card and "<https://evil.test" not in card and "&lt;!channel&gt;" in card
 
@@ -78,7 +81,10 @@ def test_N_16_agent_answers_keep_links_but_lose_mass_pings():
 
 def test_N_17_github_text_cannot_notify_people():
     sent = []
-    client = httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(lambda r: sent.append(json.loads(r.content)) or httpx.Response(201, json={"number": 5})))
+    client = httpx.Client(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(lambda r: sent.append(json.loads(r.content)) or httpx.Response(201, json={"number": 5})),
+    )
     req = Requirement(key="REQ-7", title="Ping @taqelah/everyone about 25 MB", acs=[AcceptanceCriterion(key="AC-7-1", gherkin="Given @maya\nWhen x\nThen y")])
     GitHubIssues("t", "o/r", client).create(req)
     assert "@taqelah" not in sent[0]["title"] and "@maya" not in sent[0]["body"] and "@​taqelah" in sent[0]["title"]

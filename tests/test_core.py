@@ -116,7 +116,7 @@ def test_ci_maps_tests_to_acs_and_comments_on_the_issue():
     (p,), _ = svc.capture("C1", "1.1", THREAD)
     svc.approve(p.id, "UMAYA")
     changed, unmapped = svc.take_ci(JUNIT, "#128")
-    (req, text), = changed
+    ((req, text),) = changed
     assert [ac.ci_status for ac in req.acs] == ["passing", "failing"]
     assert not req.verified and "not verified" in text
     assert unmapped == ["renders the page"]
@@ -130,7 +130,7 @@ def test_a_pass_from_an_older_version_is_stale():
     req = svc.store.get_requirement("REQ-1")
     req.acs[0].version = 2  # the AC changed after drift; the test still says v1
     svc.store.save_requirement(req)
-    (req, _), = svc.take_ci(JUNIT, "#129")[0]
+    ((req, _),) = svc.take_ci(JUNIT, "#129")[0]
     assert req.acs[0].ci_status == "stale"
 
 

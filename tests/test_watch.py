@@ -8,11 +8,11 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from test_e2e import CHANGE, KICKOFF, App, Asker, Gemini, kickoff_approved, settings
 
 from speckeeper.extract import triage
 from speckeeper.main import create_app
 from speckeeper.models import Requirement, Source
-from test_e2e import CHANGE, KICKOFF, LINK, App, Asker, Gemini, kickoff_approved, settings
 
 ROOT = "100.1"  # the kickoff mention starts the thread
 CAP = {"type": "message", "channel": "C1", "user": "UWEI", "text": "Storage costs went up, let's cap uploads at 10 MB", "ts": "200.1", "thread_ts": ROOT}
@@ -85,10 +85,13 @@ def test_W_03_several_quick_messages_are_triaged_once(monkeypatch):
     assert "ok let's cap uploads" in t.prompts[0] and "hmm, storage bill" in t.prompts[0].split("New messages (ts | who | text):")[1]
 
 
-@pytest.mark.parametrize("reply", [
-    {**SAYS_CHANGE, "confidence": 0.5},
-    {"verdict": "none", "target": "", "confidence": 0.99, "summary": "chat", "source_ts": ["__new__"]},
-])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {**SAYS_CHANGE, "confidence": 0.5},
+        {"verdict": "none", "target": "", "confidence": 0.99, "summary": "chat", "source_ts": ["__new__"]},
+    ],
+)
 def test_W_04_unsure_or_nothing_means_silence(reply):
     app, t = watched_app(reply)
     say(app, CAP)
@@ -125,7 +128,7 @@ def test_W_07_the_same_change_is_suggested_once_but_a_different_one_is_new():
 
 
 def test_W_08_review_runs_the_normal_capture_and_writes_nothing_before_approval():
-    app, t = watched_app(SAYS_CHANGE)
+    app, _t = watched_app(SAYS_CHANGE)
     say(app, CAP)
     card = suggestions(app)[0]
     value = card["blocks"][1]["elements"][0]["value"]
@@ -139,7 +142,7 @@ def test_W_08_review_runs_the_normal_capture_and_writes_nothing_before_approval(
 
 
 def test_W_09_not_a_change_closes_the_card_and_counts_a_false_alarm():
-    app, t = watched_app(SAYS_CHANGE)
+    app, _t = watched_app(SAYS_CHANGE)
     say(app, CAP)
     card = suggestions(app)[0]
     app.click("ignore_suggestion", card["blocks"][1]["elements"][1]["value"], {"ts": "1500.0", "blocks": card["blocks"]})
@@ -154,7 +157,7 @@ def test_W_10_a_gemini_error_means_silence():
 
 
 def test_W_11_an_answer_citing_old_messages_is_dropped():
-    app, t = watched_app({**SAYS_CHANGE, "source_ts": [ROOT]})
+    app, _t = watched_app({**SAYS_CHANGE, "source_ts": [ROOT]})
     say(app, CAP)
     assert suggestions(app) == []
 
@@ -168,7 +171,10 @@ def test_W_12_a_mention_is_left_to_the_mention_handler():
 def test_triage_ignores_a_change_to_a_requirement_that_does_not_exist():
     approved = [Requirement(key="REQ-7", title="25 MB", status="approved")]
     new = [Source(ts="2.0", user="U", text="cap at 10 MB")]
-    gen = lambda p, s: {"verdict": "change", "target": "REQ-99", "confidence": 0.99, "summary": "x", "source_ts": ["2.0"]}
+
+    def gen(p, s):
+        return {"verdict": "change", "target": "REQ-99", "confidence": 0.99, "summary": "x", "source_ts": ["2.0"]}
+
     assert triage([], new, gen, approved, 0.8) is None
 
 
@@ -177,7 +183,7 @@ def reactions(app: App, method: str) -> list[str]:
 
 
 def test_W_13_eyes_while_looking_and_left_on_what_the_suggestion_rests_on():
-    app, t = watched_app({"verdict": "none", "target": "", "confidence": 0.9, "summary": "", "source_ts": []}, SAYS_CHANGE)
+    app, _t = watched_app({"verdict": "none", "target": "", "confidence": 0.9, "summary": "", "source_ts": []}, SAYS_CHANGE)
     say(app, {**CAP, "ts": "200.1", "text": "lunch?"})
     assert reactions(app, "reactions.add") == ["200.1"] and reactions(app, "reactions.remove") == ["200.1"]
     say(app, {**CAP, "ts": "201.1"})
@@ -192,7 +198,7 @@ def test_W_14_eyes_on_a_mention_until_the_reply_is_posted():
 
 
 def test_W_15_help_and_mute_get_no_eyes():
-    app, t = watched_app()
+    app, _t = watched_app()
     app.mention("hello", ts="300.1", thread_ts=ROOT)
     app.mention("mute", ts="301.1", thread_ts=ROOT)
     assert reactions(app, "reactions.add") == [] or "300.1" not in reactions(app, "reactions.add")

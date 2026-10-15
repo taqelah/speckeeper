@@ -38,12 +38,23 @@ def suggestion_card(s, channel: str, thread_ts: str) -> list[dict]:
     value = json.dumps({"c": channel, "t": thread_ts, "r": s.target, "s": s.summary[:200], "m": [m.ts for m in s.sources][:20]})
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": f":bulb: Looks like this {what}: {_esc(s.summary)} ({_esc(who)})."}},
-        {"type": "actions", "elements": [
-            {"type": "button", "action_id": REVIEW_SUGGESTION, "style": "primary", "value": value,
-             "text": {"type": "plain_text", "text": "Review change" if s.kind == "change" else "Review"}},
-            {"type": "button", "action_id": IGNORE_SUGGESTION, "value": value, "text": {"type": "plain_text", "text": "Not a change"}},
-        ]},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Nothing changes until someone approves. `@Spec Keeper mute` stops suggestions in this thread."}]},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": REVIEW_SUGGESTION,
+                    "style": "primary",
+                    "value": value,
+                    "text": {"type": "plain_text", "text": "Review change" if s.kind == "change" else "Review"},
+                },
+                {"type": "button", "action_id": IGNORE_SUGGESTION, "value": value, "text": {"type": "plain_text", "text": "Not a change"}},
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Nothing changes until someone approves. `@Spec Keeper mute` stops suggestions in this thread."}],
+        },
     ]
 
 
@@ -119,7 +130,13 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
             "type": "actions",
             "block_id": f"group:{group_id}",
             "elements": [
-                {"type": "button", "style": "primary", "action_id": APPROVE_ALL, "value": group_id, "text": {"type": "plain_text", "text": "Approve all as v1.0.0"}},
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "action_id": APPROVE_ALL,
+                    "value": group_id,
+                    "text": {"type": "plain_text", "text": "Approve all as v1.0.0"},
+                },
                 {"type": "button", "action_id": REVIEW_EACH, "value": group_id, "text": {"type": "plain_text", "text": "Review one by one"}},
                 {"type": "button", "action_id": DISMISS_ALL, "value": group_id, "text": {"type": "plain_text", "text": "Dismiss"}},
             ],
@@ -164,9 +181,22 @@ def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> list
     ]
     if stale:
         blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(f":warning: Stale test: `{_esc(a.last_test)}` proves the old text and still passes" for a in stale)}}
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "\n".join(f":warning: Stale test: `{_esc(a.last_test)}` proves the old text and still passes" for a in stale),
+                },
+            }
         )
-    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "Was: " + _sources(old).removeprefix("Source: ") + "   ·   Now: " + _sources(new).removeprefix("Source: ")}]})
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": "Was: " + _sources(old).removeprefix("Source: ") + "   ·   Now: " + _sources(new).removeprefix("Source: ")}
+            ],
+        }
+    )
     if decided:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": decided}]})
     else:

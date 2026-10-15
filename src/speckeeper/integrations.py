@@ -62,29 +62,35 @@ class GitHubIssues:
         )
 
     def create(self, req: Requirement) -> int:
-        res = self.http.post(f"/repos/{self.repo}/issues", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req), "labels": ["requirement", "ac-keyed"]})
+        res = self.http.post(
+            f"/repos/{self.repo}/issues", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req), "labels": ["requirement", "ac-keyed"]}
+        )
         res.raise_for_status()
         return res.json()["number"]
 
     def update(self, number: int, req: Requirement) -> None:
-        self.http.patch(f"/repos/{self.repo}/issues/{number}", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req)}).raise_for_status()
+        self.http.patch(
+            f"/repos/{self.repo}/issues/{number}", json={"title": no_mentions(f"{req.key} {req.title}"), "body": self._body(req)}
+        ).raise_for_status()
 
     @staticmethod
     def _body(req: Requirement) -> str:
-        return no_mentions("\n".join(
-            [
-                "## Acceptance criteria",
-                "```gherkin",
-                _gherkin_block(req).replace("```", "ʼʼʼ"),
-                "```",
-                "## Verification",
-                *[f"- [ ] `{ac.key}@v{ac.version}` · a test whose name starts with this key" for ac in req.acs],
-                "",
-                f"From {req.key} in the PRD. {_sources_line(req, markdown=True)}",
-                "",
-                "_Opened by Spec Keeper after approval in Slack._",
-            ]
-        ))
+        return no_mentions(
+            "\n".join(
+                [
+                    "## Acceptance criteria",
+                    "```gherkin",
+                    _gherkin_block(req).replace("```", "ʼʼʼ"),
+                    "```",
+                    "## Verification",
+                    *[f"- [ ] `{ac.key}@v{ac.version}` · a test whose name starts with this key" for ac in req.acs],
+                    "",
+                    f"From {req.key} in the PRD. {_sources_line(req, markdown=True)}",
+                    "",
+                    "_Opened by Spec Keeper after approval in Slack._",
+                ]
+            )
+        )
 
     def close(self, number: int, comment: str) -> None:
         self.comment(number, comment)

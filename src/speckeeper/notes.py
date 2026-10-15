@@ -8,7 +8,7 @@ notes carry one.
 from __future__ import annotations
 
 import re
-from typing import Callable
+from collections.abc import Callable
 
 from .models import Source
 
@@ -26,7 +26,7 @@ def doc_id_in(text: str) -> str | None:
 
 def passages(doc_id: str, title: str, text: str) -> list[Source]:
     out = []
-    for i, line in enumerate(l.strip(" \t*-•") for l in text.splitlines()):
+    for i, line in enumerate(raw.strip(" \t*-•") for raw in text.splitlines()):
         if len(line) < 3:
             continue
         stamp = TIMESTAMP.search(line)
@@ -71,5 +71,5 @@ def public_fetch(doc_id: str) -> tuple[str, str]:
     if res.status_code != 200 or "text/plain" not in res.headers.get("content-type", ""):
         raise PermissionError("doc is not shared by link")
     text = res.content.decode("utf-8-sig")
-    title = next((l.strip() for l in text.splitlines() if l.strip()), "Meeting notes")
+    title = next((raw.strip() for raw in text.splitlines() if raw.strip()), "Meeting notes")
     return title, text

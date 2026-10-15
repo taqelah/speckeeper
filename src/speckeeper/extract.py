@@ -7,8 +7,8 @@ is dropped. A card with fewer, correct items beats one with an invented requirem
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from pydantic import BaseModel, Field
 
@@ -195,7 +195,9 @@ def gemini_generate(project: str, location: str, model: str, fallback: str = "",
         budget.spend_check()
         system, _, data = prompt.partition(DATA) if DATA in prompt else ("", "", prompt)
         config = types.GenerateContentConfig(
-            response_mime_type="application/json", response_schema=schema, temperature=0.1,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0.1,
             system_instruction=system or None,
             thinking_config=types.ThinkingConfig(thinking_level=thinking.upper()) if thinking else None,
         )

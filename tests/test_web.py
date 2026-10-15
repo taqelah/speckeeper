@@ -3,9 +3,9 @@
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
+from test_e2e import App, fetch_ok, settings
 
 from speckeeper.main import create_app
-from test_e2e import App, fetch_ok, settings
 
 
 def page(**changes) -> TestClient:
@@ -33,7 +33,7 @@ def test_buttons_appear_only_for_links_that_are_set():
 
 
 def test_the_status_line_shows_live_state_from_the_store():
-    from test_e2e import CI, LINK, junit, kickoff_approved
+    from test_e2e import junit, kickoff_approved
 
     app = App()
     kickoff_approved(app)
@@ -52,8 +52,13 @@ def test_the_status_line_never_breaks_the_page():
 
 def test_copy_buttons_carry_the_test_inputs():
     body = page(demo_notes_url="https://docs.google.com/document/d/NOTES/edit").get("/").text
-    assert 'data-copy="let&#x27;s cap uploads at 8 MB"' in body or "data-copy=\"let's cap uploads at 8 MB\"" in body
-    assert 'data-copy="@Spec Keeper https://docs.google.com/document/d/NOTES/edit"' in body and 'data-copy="@Spec Keeper reset demo"' in body and "Grounding and guardrails" in body and "Built on Google Cloud, tuned for speed" in body
+    assert 'data-copy="let&#x27;s cap uploads at 8 MB"' in body or 'data-copy="let\'s cap uploads at 8 MB"' in body
+    assert (
+        'data-copy="@Spec Keeper https://docs.google.com/document/d/NOTES/edit"' in body
+        and 'data-copy="@Spec Keeper reset demo"' in body
+        and "Grounding and guardrails" in body
+        and "Built on Google Cloud, tuned for speed" in body
+    )
 
 
 def test_the_status_line_reads_well_on_a_clean_start():

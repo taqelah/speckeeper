@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .audit import audit
 
@@ -20,7 +20,7 @@ class BudgetExceeded(RuntimeError):
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _roll() -> None:

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import time
 import logging
+import time
 import xml.etree.ElementTree as ET
 
 from defusedxml import DefusedXmlException
-
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -55,7 +54,10 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
 
     use_vertex(s.gcp_project, s.gemini_location)
     return SpecKeeper(
-        store, generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model), prd, issues,
+        store,
+        generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),
+        prd,
+        issues,
         Asker(store, s.flash_model, fallback=s.pro_model),
         triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
         min_confidence=s.watch_min_confidence,
@@ -84,8 +86,17 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     s = s or Settings.from_env()
     svc = svc or build_service(s)
     slack = build_slack_app(
-        s.slack_bot_token, s.slack_signing_secret, svc, fetch_doc or lazy_drive_fetch(), client=slack_client, wait=wait, quiet=s.watch_quiet_seconds,
-        approvers=s.approvers, per_user=s.requests_per_user, per_seconds=s.requests_window_seconds, demo_channels=s.demo_channels,
+        s.slack_bot_token,
+        s.slack_signing_secret,
+        svc,
+        fetch_doc or lazy_drive_fetch(),
+        client=slack_client,
+        wait=wait,
+        quiet=s.watch_quiet_seconds,
+        approvers=s.approvers,
+        per_user=s.requests_per_user,
+        per_seconds=s.requests_window_seconds,
+        demo_channels=s.demo_channels,
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
@@ -97,7 +108,10 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         # The status line reads the store, so the page is rebuilt at most every 30 seconds.
         if time.monotonic() - cached["at"] > 30:
             cached.update(at=time.monotonic(), page=landing(s, await asyncio.to_thread(status_strip, svc)))
-        return HTMLResponse(cached["page"], headers={"Cache-Control": "public, max-age=30", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin"})
+        return HTMLResponse(
+            cached["page"],
+            headers={"Cache-Control": "public, max-age=30", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin"},
+        )
 
     @api.get("/architecture.png")
     async def architecture():
@@ -133,7 +147,7 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         try:
             changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
         except (ET.ParseError, DefusedXmlException):
-            raise HTTPException(status_code=400, detail="junit_xml is not valid XML")
+            raise HTTPException(status_code=400, detail="junit_xml is not valid XML") from None
         for _req, text in changed:
             await slack.client.chat_postMessage(channel=run.channel, text=text)
         return {"requirements": [r.key for r, _ in changed], "unmapped": unmapped}
