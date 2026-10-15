@@ -51,8 +51,10 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
 
         issues = GitHubIssues(s.github_token, s.github_repo)
     from .agent import Asker, use_vertex
+    from .tracing import setup_tracing
 
     use_vertex(s.gcp_project, s.gemini_location)
+    setup_tracing(s.trace_to_cloud)
     return SpecKeeper(
         store,
         generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),
