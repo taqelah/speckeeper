@@ -73,7 +73,7 @@ def landing(s: Settings, status: str = "") -> str:
     return Template((WEB / "index.html").read_text()).safe_substitute(
         ctas=ctas,
         status=status,
-        notes_copy=(f'<button type="button" class="copy" data-copy="{q(s.demo_notes_url)}">Copy link</button>' if s.demo_notes_url.startswith("https://") else ""),
+        notes_copy=(f'<button type="button" class="copy" data-copy="{q("@Spec Keeper " + s.demo_notes_url)}">Copy</button>' if s.demo_notes_url.startswith("https://") else ""),
         limit=f"Each person can make {s.requests_per_user} requests every {minutes} minutes",
         prd=q(f"https://docs.google.com/document/d/{s.prd_doc_id}/edit" if s.prd_doc_id else repo),
         issues=q(f"https://github.com/{s.github_repo}/issues?q=label%3Arequirement" if s.github_repo else repo),
