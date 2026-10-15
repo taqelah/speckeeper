@@ -1,5 +1,6 @@
 """The web service boots without credentials and guards /ci; no network calls."""
 
+from fakes import FakeEngine
 from fastapi.testclient import TestClient
 
 from speckeeper.config import Settings
@@ -27,7 +28,7 @@ def settings(**kw):
 
 
 def client():
-    svc = SpecKeeper(MemoryStore(), lambda prompt, schema: {"requirements": []})
+    svc = SpecKeeper(MemoryStore(), FakeEngine(lambda prompt, schema: {"requirements": []}))
     return TestClient(create_app(settings(), svc))
 
 

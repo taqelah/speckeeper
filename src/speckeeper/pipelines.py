@@ -1,11 +1,11 @@
-"""Capture and thread watch as ADK multi-agent pipelines (CAPTURE_ENGINE=adk).
+"""Capture and thread watch as ADK multi-agent pipelines.
 
     thread watch = SequentialAgent[ triage_agent (Flash, output_schema=Triage, low thinking) → triage_gate ]
     capture      = SequentialAgent[ capture_agent (Pro, output_schema=Extraction) → citation_check ]
 
 A person's Review click stays between the two: thread watch only suggests, and capture runs when someone
-asks. The prompts, schemas and checks are the same as the direct engine's (extract.py); the gate and the
-citation check are the same functions, run as deterministic agent steps. Both LLM agents carry the
+asks. The prompts, schemas and checks live in extract.py; the gate and the citation check are
+deterministic agent steps that call them. Both LLM agents carry the
 guardrail callbacks (budget before every call, tokens counted after, fallback model on a rate limit) and
 run under the same plugins as the "why?" agent, so their calls show in Cloud Trace and BigQuery too."""
 

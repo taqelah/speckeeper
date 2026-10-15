@@ -33,7 +33,6 @@ class Settings:
     demo_channels: tuple[str, ...] = ()  # Slack channel ids where "@Spec Keeper reset demo" is allowed
     demo_notes_url: str = ""  # the kickoff notes link judges paste; gets a copy button on the landing page
     source_repo: str = "https://github.com/taqelah/speckeeper"
-    capture_engine: str = "direct"  # "adk": capture and thread watch run as ADK pipelines (pipelines.py)
     analytics_dataset: str = ""  # BigQuery dataset for the agent's analytics events; off when empty
     trace_to_cloud: bool = False  # export the question agent's spans to Cloud Trace (on in Cloud Run)
 
@@ -66,7 +65,6 @@ class Settings:
             demo_notes_url=env("DEMO_NOTES_URL", ""),
             demo_channels=tuple(c.strip() for c in env("DEMO_CHANNELS", "").split(",") if c.strip()),
             source_repo=env("SOURCE_REPO", "https://github.com/taqelah/speckeeper"),
-            capture_engine=env("CAPTURE_ENGINE", "direct").strip().lower(),
             analytics_dataset=env("ANALYTICS_DATASET", ""),
             trace_to_cloud=env("TRACE_TO_CLOUD", "") == "1",
         )

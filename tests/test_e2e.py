@@ -14,6 +14,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from fakes import FakeEngine
 from fastapi.testclient import TestClient
 from slack_sdk.web.async_client import AsyncWebClient
 from test_meeting import DOC, NOTES, FakeIssues, FakePRD
@@ -183,7 +184,7 @@ class App:
     def __init__(self, gemini=None, asker=None, fetch=fetch_ok, thread=None):
         self.prd, self.issues = FakePRD(), FakeIssues()
         self.issues_created = self.issues.created
-        self.svc = SpecKeeper(MemoryStore(first_req=7), gemini or Gemini(KICKOFF), self.prd, self.issues, asker)
+        self.svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(gemini or Gemini(KICKOFF)), self.prd, self.issues, asker)
         self.slack = FakeSlack(thread)
         self.http = TestClient(create_app(settings(), self.svc, slack_client=self.slack.client(), fetch_doc=fetch, wait=True))
         self._event = 0

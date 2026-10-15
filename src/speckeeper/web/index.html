@@ -171,7 +171,7 @@
             <tr><td><b>Gemini 3.8 Flash</b></td><td>Low thinking for thread watch: from up to 42 s to about 3 s, with all 7 test cases still right; one call per 15 s of quiet</td></tr>
             <tr><td><b>Gemini 3.1 Pro</b></td><td>A JSON response schema, so answers parse first time; only the cited messages on review; rules in the system instruction</td></tr>
             <tr><td><b>Vertex AI</b></td><td>Pro and Flash cover for each other on rate limits; tokens logged on every call</td></tr>
-            <tr><td><b>Agent Development Kit</b></td><td>The “why?” agent answers from read-only tools with linked sources. Its guardrails are ADK callbacks: the token budget checked before every model call, every tool call checked and audit-logged, and a rate limit switching to the fallback model mid-question, without redoing lookups</td></tr>
+            <tr><td><b>Agent Development Kit</b></td><td>The whole system runs on ADK: capture and thread watch are multi-agent pipelines (a Flash triage agent, then a gate step; a Pro capture agent, then a citation-check step), and the “why?” agent answers from read-only tools with linked sources. Its guardrails are ADK callbacks: the token budget checked before every model call, every tool call checked and audit-logged, and a rate limit switching to the fallback model mid-question, without redoing lookups</td></tr>
             <tr><td><b>Firestore</b></td><td>Fingerprinted notes skip Gemini when unchanged; REQ numbers come from a transaction</td></tr>
             <tr><td><b>Docs and Drive APIs</b></td><td>The PRD rebuilt in one write, not one edit per requirement</td></tr>
             <tr><td><b>BigQuery</b></td><td>ADK’s agent analytics plugin streams every “why?” question to BigQuery: each Gemini call with its tokens and latency, each tool call and whether it found anything. Counts and names only, never the message text</td></tr>
@@ -214,7 +214,7 @@
         <div><div class="n">26/26</div><div class="t">Thread watch decisions right: 10 changes caught, 0 false alarms in 16</div></div>
         <div><div class="n">3/3</div><div class="t">Prompt-injection messages blocked</div></div>
       </div>
-      <p>Small, hand-written samples from development (4 captures, 7 thread cases over 5 runs), not a benchmark. <a href="$repo/blob/8afeabd8e20759d7299714dab6c26356553c59f3/evals/development-results.md">Every run and its limits</a>.</p>
+      <p>Small, hand-written samples from development (4 captures, 7 thread cases over 5 runs), not a benchmark, measured before capture and thread watch moved into ADK pipelines with the same prompts and checks. <a href="$repo/blob/8afeabd8e20759d7299714dab6c26356553c59f3/evals/development-results.md">Every run and its limits</a>.</p>
     </div>
   </section>
 

@@ -1,18 +1,15 @@
-"""Capture: a Slack thread in, cited requirements with Gherkin acceptance criteria out.
-
-Gemini returns structured JSON; anything that does not cite a message that is really in the thread
-is dropped. A card with fewer, correct items beats one with an invented requirement.
+"""Capture and thread watch: the prompts, the response schemas and the checks. The ADK pipelines in
+pipelines.py run them: Gemini returns structured JSON, and anything that does not cite a message that is
+really in the discussion is dropped. A card with fewer, correct items beats one with an invented requirement.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from . import budget
 from .models import AcceptanceCriterion, Requirement, Source
 
 
@@ -68,10 +65,6 @@ Discussion (ts | who | text):
 # a Slack message or the notes can't pass itself off as part of the instructions.
 DATA = "\n<<<DATA>>>\n"
 
-# (prompt, schema) -> parsed JSON as a dict. Injected so tests never call Gemini.
-Generate = Callable[[str, type[BaseModel]], dict]
-
-
 MAX_MESSAGE_CHARS = 4000  # one Slack message or notes passage
 MAX_THREAD_CHARS = 100_000  # what one prompt may carry; the newest messages are kept
 
@@ -115,13 +108,6 @@ def to_requirements(raw: Extraction, messages: list[Source], approved: list[Requ
         changes = item.changes.strip().upper() if item.changes.strip().upper() in keys else ""
         reqs.append((Requirement(key="", title=item.title.strip(), acs=acs, sources=sources), changes))
     return reqs, raw.open_questions
-
-
-def extract(messages: list[Source], generate: Generate, approved: list[Requirement] | None = None) -> tuple[list[tuple[Requirement, str]], list[str]]:
-    """Returns (requirement, key of the approved requirement it changes or "") pairs, and open questions."""
-    approved = approved or []
-    raw = Extraction.model_validate(generate(capture_prompt(messages, approved), Extraction))
-    return to_requirements(raw, messages, approved)
 
 
 class Triage(BaseModel):
@@ -196,53 +182,3 @@ def to_suggestion(raw: Triage, new: list[Source], approved: list[Requirement], m
     target = raw.target.strip().upper()
     sources = [by_ts[ts] for ts in raw.source_ts if ts in by_ts]
     return Suggestion(verdict, target if verdict == "change" else "", raw.summary.strip()[:120], raw.confidence, sources)
-
-
-def triage(context: list[Source], new: list[Source], generate: Generate, approved: list[Requirement], min_confidence: float) -> Suggestion | None:
-    """One cheap call: do the newest messages change or add a requirement? None unless it is sure, cites
-    the new messages, and (for a change) names a requirement that exists."""
-    if not new:
-        return None
-    raw = Triage.model_validate(generate(triage_prompt(context, new, approved), Triage))
-    return to_suggestion(raw, new, approved, min_confidence)
-
-
-def gemini_generate(project: str, location: str, model: str, fallback: str = "", thinking: str = "") -> Generate:
-    """Gemini on Vertex AI with a response schema, so the reply is JSON of that shape. `thinking` ("low",
-    "minimal") caps how long the model reasons first: a yes/no triage doesn't need the default."""
-    from google import genai
-    from google.genai import types
-
-    clients: list = []  # made on first use, so the service starts (and Slack connects) before GCP is set up
-
-    def generate(prompt: str, schema: type[BaseModel]) -> dict:
-        if not clients:
-            clients.append(genai.Client(vertexai=True, project=project, location=location))
-        budget.spend_check()
-        system, _, data = prompt.partition(DATA) if DATA in prompt else ("", "", prompt)
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.1,
-            system_instruction=system or None,
-            thinking_config=types.ThinkingConfig(thinking_level=thinking.upper()) if thinking else None,
-        )
-        prompt = data
-        try:
-            res = clients[0].models.generate_content(model=model, contents=prompt, config=config)
-        except Exception as e:
-            # Preview models have small quotas: on a rate limit, ask the fallback model once.
-            if not fallback or not (getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)):
-                raise
-            logging.getLogger("speckeeper").warning("%s rate limited; using %s", model, fallback)
-            res = clients[0].models.generate_content(model=fallback, contents=prompt, config=config)
-        u = res.usage_metadata
-        if u:  # tokens are what Gemini bills for; logged per call for the cost slide and the evals
-            logging.getLogger("speckeeper.usage").info(
-                "model=%s input=%s output=%s thinking=%s", model, u.prompt_token_count, u.candidates_token_count, u.thoughts_token_count or 0
-            )
-            generate.last_usage = {"input": u.prompt_token_count or 0, "output": u.candidates_token_count or 0, "thinking": u.thoughts_token_count or 0}
-            budget.spend(sum(generate.last_usage.values()))
-        return res.parsed.model_dump() if isinstance(res.parsed, BaseModel) else (res.parsed or {})
-
-    return generate
