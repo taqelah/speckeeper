@@ -20,7 +20,7 @@ def suggestion_card(s, channel: str, thread_ts: str) -> list[dict]:
     """Thread watch noticed a change. It only offers a capture; the capture still goes through approval."""
     who = s.sources[0].label or "someone"
     what = f"changes *{s.target}*" if s.kind == "change" else "agrees a new requirement"
-    value = json.dumps({"c": channel, "t": thread_ts, "r": s.target, "s": s.summary[:200]})
+    value = json.dumps({"c": channel, "t": thread_ts, "r": s.target, "s": s.summary[:200], "m": [m.ts for m in s.sources][:20]})
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": f":bulb: Looks like this {what}: {_esc(s.summary)} ({_esc(who)})."}},
         {"type": "actions", "elements": [

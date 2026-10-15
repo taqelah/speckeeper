@@ -133,9 +133,12 @@ def build_slack_app(
             )
         return messages
 
-    async def capture(client, channel: str, thread_ts: str, mention_ts: str) -> None:
+    async def capture(client, channel: str, thread_ts: str, mention_ts: str, only: list[str] | None = None) -> None:
+        """`only`: capture just these messages (a thread-watch suggestion's sources), not the whole thread."""
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Reading the thread…_")
         messages = await read_thread(client, channel, thread_ts, skip_ts=mention_ts)
+        if only:
+            messages = [m for m in messages if m.ts in only] or messages
         try:
             proposals, questions = await asyncio.to_thread(svc.capture, channel, thread_ts, messages)
         except Exception:
@@ -391,7 +394,7 @@ def build_slack_app(
             channel=body["channel"]["id"], ts=body["message"]["ts"], text=note,
             blocks=[body["message"]["blocks"][0], {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}],
         )
-        await capture(client, v["c"], v["t"], mention_ts="")
+        await capture(client, v["c"], v["t"], mention_ts="", only=v.get("m"))
 
     @app.action(IGNORE_SUGGESTION)
     async def on_ignore_suggestion(ack, body, client):

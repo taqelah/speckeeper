@@ -134,6 +134,8 @@ def test_W_08_review_runs_the_normal_capture_and_writes_nothing_before_approval(
     assert "is reviewing this" in reviewing["text"] and "review_suggestion" not in json.dumps(reviewing["blocks"])
     assert "Change to REQ-7" in json.dumps(change["blocks"]) and "10 MB" in json.dumps(change["blocks"])
     assert app.svc.store.get_requirement("REQ-7").version == 1 and app.issues.updated == []
+    review_prompt = app.svc.generate.prompts[-1].split("Discussion (ts | who | text):")[1]
+    assert "200.1" in review_prompt and "kickoff notes" not in review_prompt  # only what the suggestion rests on
 
 
 def test_W_09_not_a_change_closes_the_card_and_counts_a_false_alarm():
