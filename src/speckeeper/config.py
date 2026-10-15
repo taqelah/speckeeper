@@ -33,6 +33,7 @@ class Settings:
     demo_channels: tuple[str, ...] = ()  # Slack channel ids where "@Spec Keeper reset demo" is allowed
     demo_notes_url: str = ""  # the kickoff notes link judges paste; gets a copy button on the landing page
     source_repo: str = "https://github.com/taqelah/speckeeper"
+    trace_to_cloud: bool = False  # export the question agent's spans to Cloud Trace (on in Cloud Run)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -63,4 +64,5 @@ class Settings:
             demo_notes_url=env("DEMO_NOTES_URL", ""),
             demo_channels=tuple(c.strip() for c in env("DEMO_CHANNELS", "").split(",") if c.strip()),
             source_repo=env("SOURCE_REPO", "https://github.com/taqelah/speckeeper"),
+            trace_to_cloud=env("TRACE_TO_CLOUD", "") == "1",
         )

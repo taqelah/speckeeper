@@ -120,6 +120,8 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   model call and counts every call's tokens, through ADK callbacks.
 - **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
   question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+- **Tracing.** Each question to the agent is a Cloud Trace trace (Gemini calls with tokens, tool calls,
+  timings). Message text is kept out of spans (`ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`).
 - **Supply chain.** CI runs the tests and `pip-audit`; Dependabot watches dependencies and actions; actions
   are pinned to commit hashes.
 
@@ -160,7 +162,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-134 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+138 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
@@ -196,6 +198,9 @@ Gemini, that every case can be answered from the fixture.
 | Thread watch: changes and new requirements caught | 10 / 10 |
 | Thread watch: false alarms | 0 / 16 |
 | Prompt-injection messages blocked | 3 / 3 |
+
+**Cost:** a meeting capture costs about $0.05 in Gemini, a thread-watch check $0.001, and one full demo
+about $0.09 ([evals/cost.md](evals/cost.md), from the token counts in Cloud Logging).
 
 ## For contributors
 

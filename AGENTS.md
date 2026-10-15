@@ -62,6 +62,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
+| `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
 | `evals/notes/` | Meeting notes fixtures |
 | `evals/qa/` | ADK eval of the question agent: `fixture.py` (a fixed project), `cases.py` (questions, expected tool calls, reference answers), `run.py` (AgentEvaluator; writes `report.json`) |
