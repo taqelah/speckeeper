@@ -130,6 +130,13 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   (`GEMINI_LOCATION`) for Gemini 3.x; Cloud Run and Firestore stay in asia-southeast1.
 - **Preview model quotas are small.** `gemini-3.1-pro-preview` returns 429 under light load; capture
   and questions retry once on the other model. Raise the quota before the demo.
+- **A new project needs three extra steps** (moved to `speckeeper-taqelah` on 16 Oct 2026 after the
+  first project's Vertex AI access was suspended). Grant the default compute service account
+  `roles/run.builder`, or `--source` builds can't read the upload. Organisations with domain-restricted
+  sharing refuse `allUsers`, so `deploy.sh` uses `--no-invoker-iam-check`. `gcloud firestore databases
+  create` failed on the fresh project, but the Firestore REST API worked.
+- **Never run adversarial prompts or evals in bulk against Vertex AI.** Repeated injection test cases
+  in automated runs were followed by an Acceptable Use Policy suspension. Run them against fakes.
 - **ADK skips `after_model_callback` when `before_model_callback` returns a response.** The fallback
   path answers from `before_model`, so it counts its own tokens there. `temp:` state lasts one question
   and isn't saved, which is why a question stays on the fallback but the next one starts on Flash.

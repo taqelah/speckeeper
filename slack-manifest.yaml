@@ -22,14 +22,14 @@ oauth_config:
       - users:read
 settings:
   event_subscriptions:
-    request_url: https://speckeeper-193909905599.asia-southeast1.run.app/slack/events
+    request_url: https://speckeeper-316240606637.asia-southeast1.run.app/slack/events
     bot_events:
       - app_mention
       - message.channels
       - message.groups
   interactivity:
     is_enabled: true
-    request_url: https://speckeeper-193909905599.asia-southeast1.run.app/slack/events
+    request_url: https://speckeeper-316240606637.asia-southeast1.run.app/slack/events
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
