@@ -1,0 +1,13 @@
+# What `gcloud run deploy --source .` must never upload: secrets, local data, local tooling.
+.env
+.env.*
+!.env.example
+.data/
+.venv/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+evals/
+agents/
+tests/
