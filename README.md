@@ -116,9 +116,10 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   links) and @mentions in GitHub text are defused.
 - **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
   JUnit XML, parsed with `defusedxml`. Each user gets 10 Gemini requests per 10 minutes, and a daily token
-  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached.
-- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits and the budget
-  are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached. The question agent checks it before every
+  model call and counts every call's tokens, through ADK callbacks.
+- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
+  question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
 - **Supply chain.** CI runs the tests and `pip-audit`; Dependabot watches dependencies and actions; actions
   are pinned to commit hashes.
 
@@ -159,7 +160,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-127 tests, about a second, no network. Thirty of them run the whole app end to end: Slack-signed
+134 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.

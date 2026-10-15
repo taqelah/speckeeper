@@ -155,7 +155,7 @@
             <tr><td><b>Gemini 3.8 Flash</b></td><td>Low thinking for thread watch: from up to 42 s to about 3 s, with all 7 test cases still right; one call per 15 s of quiet</td></tr>
             <tr><td><b>Gemini 3.1 Pro</b></td><td>A JSON response schema, so answers parse first time; only the cited messages on review; rules in the system instruction</td></tr>
             <tr><td><b>Vertex AI</b></td><td>Pro and Flash cover for each other on rate limits; tokens logged on every call</td></tr>
-            <tr><td><b>Agent Development Kit</b></td><td>The “why?” agent answers from read-only tools with linked sources, in a fresh session per question</td></tr>
+            <tr><td><b>Agent Development Kit</b></td><td>The “why?” agent answers from read-only tools with linked sources. Its guardrails are ADK callbacks: the token budget checked before every model call, every tool call checked and audit-logged, and a rate limit switching to the fallback model mid-question, without redoing lookups</td></tr>
             <tr><td><b>Firestore</b></td><td>Fingerprinted notes skip Gemini when unchanged; REQ numbers come from a transaction</td></tr>
             <tr><td><b>Docs and Drive APIs</b></td><td>The PRD rebuilt in one write, not one edit per requirement</td></tr>
             <tr><td><b>Secret Manager, Logging, Build</b></td><td>Per-secret access; a daily token budget and signature alerts; builds from the lock file</td></tr>
@@ -197,7 +197,7 @@
     <div class="body trust">
       <p><b>Cited or dropped.</b> Every requirement names its Slack message or meeting time; anything Gemini returns without a citation never reaches a card.</p>
       <p><b>Known sources only.</b> Channels it's invited to, meeting notes shared with its account, and CI results from the repo's workflow.</p>
-      <p><b>The agent only reads.</b> Three tools over Firestore: requirements, criteria with CI status, change history. It can't change anything.</p>
+      <p><b>The agent only reads.</b> Three tools over Firestore: requirements, criteria with CI status, change history. It can't change anything, and every tool call is checked and audit-logged.</p>
       <p><b>A person approves.</b> Nothing is written before someone clicks Approve, and approvers can be limited to named people.</p>
       <p><b>Injection-resistant.</b> Rules in Gemini's system instruction, messages fenced as data: 3 of 3 attack messages blocked on real Gemini.</p>
       <p><b>Safe output.</b> Escaped in Slack (no @channel), mentions defused on GitHub, every decision and refusal audit-logged.</p>

@@ -198,10 +198,7 @@ def build_slack_app(
     async def answer(client, channel: str, thread_ts: str, question: str, user: str) -> None:
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Looking it up…_")
         try:
-            from .budget import spend_check
-
-            spend_check()
-            reply = await svc.asker.ask(question, user)
+            reply = await svc.asker.ask(question, user)  # the agent checks the budget before every model call
         except Exception as e:
             log.exception("question failed")
             reply = failed(e, "look that up")

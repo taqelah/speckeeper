@@ -56,28 +56,6 @@ def test_agent_is_built_with_the_three_tools():
     assert sorted(t.__name__ for t in agent.tools) == ["get_history", "get_requirement", "list_requirements"]
 
 
-def test_a_rate_limited_question_is_asked_again_on_the_fallback_model():
-    import asyncio
-
-    from speckeeper.agent import Asker
-
-    asker = Asker(MemoryStore(), "gemini-3.8-flash", fallback="gemini-3.1-pro-preview")
-    used = []
-
-    class RateLimited(Exception):
-        code = 429
-
-    async def fake_run(runner, question, user):
-        used.append(runner.agent.model)
-        if len(used) == 1:
-            raise RateLimited("RESOURCE_EXHAUSTED")
-        return "answer"
-
-    asker._run = fake_run
-    assert asyncio.run(asker.ask("why?")) == "answer"
-    assert used == ["gemini-3.8-flash", "gemini-3.1-pro-preview"]
-
-
 def test_history_puts_creation_before_a_change_with_the_same_timestamp():
     from speckeeper.models import Proposal, Requirement
     from speckeeper.store import _history_order
