@@ -189,8 +189,38 @@
     </div>
   </section>
 
+  <section class="wrap chapter rule" id="faster" aria-labelledby="faster-h">
+    <div class="label"><div class="num">V</div><div class="name" id="faster-h">Made faster</div><p>What we changed to make it quicker and cheaper. Before and after figures only where we measured both.</p></div>
+    <div class="body">
+      <p class="big">Two changes with a measured before and after.</p>
+      <div class="stats">
+        <div><div class="n" style="font-size: 30px">42s → 3s</div><div class="t">A thread-watch check: up to 42 s before, about 3 s after switching Gemini 3.8 Flash to low thinking, with the same verdicts on all 7 test cases</div></div>
+        <div><div class="n" style="font-size: 30px">&#36;0.022 → &#36;0.001</div><div class="t">The same check’s cost, about 20× cheaper. It is the call that runs most, once per quiet thread</div></div>
+        <div><div class="n" style="font-size: 30px">45s → 1s</div><div class="t">Meeting notes shared again unchanged: a 37–45 s capture becomes about 1 s, because each doc is fingerprinted and an unchanged one skips Gemini</div></div>
+      </div>
+      <p>From development runs and logged calls on the live service. <a href="$repo/blob/9293269f6b4b9dcf816a828b0f72c62f17a5fc04/evals/development-results.md">The thread-watch runs</a> and <a href="$repo/blob/9293269f6b4b9dcf816a828b0f72c62f17a5fc04/evals/cost.md">the cost and timing figures</a>.</p>
+      <p class="big">And design choices that keep it fast and cheap. We didn’t time a “before” for these, so there are no before and after figures.</p>
+      <div class="scroll">
+        <table style="min-width: 640px">
+          <thead><tr><th scope="col" style="width: 38%">Change</th><th scope="col">What it buys</th></tr></thead>
+          <tbody>
+            <tr><td><b>One warm Cloud Run instance, CPU kept on</b></td><td>No cold start inside Slack’s 3 seconds; the Gemini work finishes after Slack has its acknowledgement</td></tr>
+            <tr><td><b>Thread watch waits for 15 s of quiet</b></td><td>One Gemini call per pause in the conversation, not one per message; a suggestion arrives about 20 s after the message</td></tr>
+            <tr><td><b>“Why?” questions on Gemini Flash</b></td><td>Answers on the quicker, cheaper model; Pro is kept for capturing requirements</td></tr>
+            <tr><td><b>Pro and Flash cover for each other</b></td><td>A rate limit switches model mid-question without redoing the lookups</td></tr>
+            <tr><td><b>Reviews send only the cited messages</b></td><td>Fewer tokens per change review, which now takes 11–14 s</td></tr>
+            <tr><td><b>A JSON response schema</b></td><td>Gemini’s answers parse first time, so there are no retry calls</td></tr>
+            <tr><td><b>The PRD rebuilt in one write</b></td><td>One Docs API call, not one edit per requirement</td></tr>
+            <tr><td><b>No Gemini for approvals, the PRD, issues or CI results</b></td><td>Those steps are instant and cost nothing</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="big">Next: low thinking for the “why?” agent. A whole answer takes 19–25 s and nearly all of it is Gemini thinking; the same change took thread watch from 42 s to 3 s.</p>
+    </div>
+  </section>
+
   <section class="wrap chapter rule" id="measured" aria-labelledby="measured-h">
-    <div class="label"><div class="num">V</div><div class="name" id="measured-h">Measured</div><p>The “why?” agent, graded by ADK’s evaluator with Gemini as the judge. Capture and thread watch, from development runs.</p></div>
+    <div class="label"><div class="num">VI</div><div class="name" id="measured-h">Measured</div><p>The “why?” agent, graded by ADK’s evaluator with Gemini as the judge. Capture and thread watch, from development runs.</p></div>
     <div class="body">
       <p class="big">We ask the agent 13 questions about a fixed project, three times each, against an answer key: the tools it should use and the answer it should give.</p>
       <div class="stats">
@@ -224,7 +254,7 @@
   </section>
 
   <section class="wrap chapter rule" id="trust" aria-labelledby="trust-h">
-    <div class="label"><div class="num">VI</div><div class="name" id="trust-h">Trust</div><p>Grounding, guardrails and security.</p></div>
+    <div class="label"><div class="num">VII</div><div class="name" id="trust-h">Trust</div><p>Grounding, guardrails and security.</p></div>
     <div class="body trust">
       <p><b>Cited or dropped.</b> Every requirement names its Slack message or meeting time; anything Gemini returns without a citation never reaches a card.</p>
       <p><b>Known sources only.</b> Only the project channels it's set up for (anywhere else it says so and reads nothing), meeting notes shared with its account, and CI results from the repo's workflow.</p>
