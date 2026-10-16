@@ -94,3 +94,25 @@ def test_try_it_shows_memory_bank_and_trust_names_recovery_and_supply_chain():
     assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "3 · Ask a question</b> in the same thread" in body
     assert "6 · Ask why." in body and "changed since you last asked" in body and "7 · Try to break it" in body
     assert "Recoverable and audited." in body and "point-in-time recovery" in body and "Supply chain." in body
+
+
+def test_every_link_off_the_page_opens_in_a_new_tab():
+    import re
+
+    body = (
+        page(
+            prd_doc_id="DOC1",
+            github_repo="taqelah/checkout-app",
+            demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc",
+            demo_video_url="https://youtu.be/v",
+            contact_email="a@b.co",
+            demo_notes_url="https://docs.google.com/document/d/N/edit",
+        )
+        .get("/")
+        .text
+    )
+    links = re.findall(r"<a [^>]*>", body)
+    away = [a for a in links if not re.search(r'href="#', a)]
+    assert len(away) > 15 and all('target="_blank"' in a and 'rel="noopener"' in a for a in away)
+    assert all(a.count("target=") <= 1 for a in links)  # never added twice
+    assert '<a class="brand" href="#top">' in body  # links within the page stay in the tab
