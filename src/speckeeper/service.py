@@ -337,11 +337,25 @@ class SpecKeeper:
         return p, self._release(what, user_name or user, p.group_id)
 
     def _approve(self, pid: str, user: str) -> Proposal | None:
+        if not self.store.claim_proposal(pid):
+            return None  # already decided, or being decided: a double click must not file twice
         p = self.store.get_proposal(pid)
-        if p is None or p.status != "pending":
-            return None  # already decided: a double click must not file twice
-        if p.kind == "change":
-            return self._approve_change(p, user)
+        try:
+            done = self._approve_change(p, user) if p.kind == "change" else self._approve_new(p, user)
+        except Exception:
+            self._unclaim(pid)
+            raise
+        if done is None:
+            self._unclaim(pid)
+        return done
+
+    def _unclaim(self, pid: str) -> None:
+        p = self.store.get_proposal(pid)
+        if p and p.status == "deciding":
+            p.status = "pending"
+            self.store.save_proposal(p)
+
+    def _approve_new(self, p: Proposal, user: str) -> Proposal:
         n = self.store.next_req_number()
         req = p.requirement
         req.key, req.status = f"REQ-{n}", "approved"
@@ -372,13 +386,17 @@ class SpecKeeper:
         return p
 
     def dismiss(self, pid: str, user: str) -> Proposal | None:
-        p = self.store.get_proposal(pid)
-        if p is None or p.status != "pending":
+        if not self.store.claim_proposal(pid):
             return None
+        p = self.store.get_proposal(pid)
         p.status, p.decided_by, p.decided_at = "dismissed", user, _now()
         p.requirement.status = "dismissed"
         self.store.save_proposal(p)
         return p
+
+    def requirement_channels(self) -> set[str]:
+        """Channels where requirements were captured: the only ones a CI run may post its results in."""
+        return {p.channel for r in self.store.requirements() for p in self.store.proposals_for(r.key) if p.channel}
 
     def take_ci(self, junit_xml: str, run_id: str) -> tuple[list[tuple[Requirement, str]], list[str]]:
         """Apply a CI run. Returns (requirement, Slack summary) per requirement touched, and unmapped tests."""

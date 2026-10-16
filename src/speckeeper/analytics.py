@@ -16,6 +16,9 @@ from typing import Any
 log = logging.getLogger("speckeeper")
 
 TABLE = "agent_events"
+# Only events redact() handles, plus the completion events that carry latency. Not STATE_DELTA or the
+# pipelines' outputs: those hold requirement text from capture and thread watch.
+EVENTS = ["USER_MESSAGE_RECEIVED", "LLM_RESPONSE", "TOOL_STARTING", "TOOL_COMPLETED", "AGENT_RESPONSE", "AGENT_COMPLETED", "INVOCATION_COMPLETED"]
 KEY = re.compile(r"REQ-\d{1,5}", re.IGNORECASE)
 
 
@@ -58,6 +61,8 @@ def analytics_plugins(project: str, dataset: str, location: str = "asia-southeas
             flush_on_run_end=False,  # rows are written in the background, never on Slack's clock
             enable_otel_correlation=True,  # each row carries its Cloud Trace trace id
             create_views=False,  # views need BigQuery jobs (another role); analytics/queries.sql reads the table
+            log_session_metadata=False,  # would copy the session state (extracted requirements) into every row
+            event_allowlist=EVENTS,
         )
         return [BigQueryAgentAnalyticsPlugin(project_id=project, dataset_id=dataset, location=location, config=config)]
     except Exception:  # analytics must never stop the service from starting

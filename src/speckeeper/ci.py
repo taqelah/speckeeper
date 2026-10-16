@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from defusedxml.ElementTree import fromstring  # no entity expansion or external entities
 
+from .cards import _esc
 from .models import Requirement
 
 KEY = re.compile(r"\b(AC-\d+-\d+)(?:@v(\d+))?\b")
@@ -74,8 +75,9 @@ def apply_results(reqs: list[Requirement], results: list[TestResult], run_id: st
 
 def summary(req: Requirement, run_id: str) -> str:
     icon = {"passing": ":white_check_mark:", "failing": ":x:", "stale": ":warning:", "none": ":grey_question:"}
-    lines = [f"CI run {run_id}. Results for *{req.key}* {req.title}:"]
+    # The title is Gemini text and run_id and test names come from CI: escaped so none can ping or link.
+    lines = [f"CI run {_esc(run_id)}. Results for *{req.key}* {_esc(req.title)}:"]
     for ac in req.acs:
-        lines.append(f"{icon[ac.ci_status]} {ac.key} {ac.ci_status}" + (f" · {ac.last_test}" if ac.last_test else ""))
+        lines.append(f"{icon[ac.ci_status]} {ac.key} {ac.ci_status}" + (f" · {_esc(ac.last_test)}" if ac.last_test else ""))
     lines.append(f"*{req.key} is verified.*" if req.verified else f"{req.key} is not verified yet.")
     return "\n".join(lines)

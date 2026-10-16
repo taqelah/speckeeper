@@ -45,7 +45,7 @@ def test_ci_with_no_matching_requirements_posts_nothing():
     res = client().post(
         "/ci", json={"run_id": "1", "channel": "C1", "junit_xml": "<testsuites><testcase name='x'/></testsuites>"}, headers={"X-SpecKeeper-Secret": "s3cret"}
     )
-    assert res.json() == {"requirements": [], "unmapped": ["x"]}
+    assert res.json() == {"requirements": [], "unmapped": ["x"], "posted": False}
 
 
 def test_slack_rejects_unsigned_requests():

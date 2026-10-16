@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Protocol
 
@@ -22,6 +23,7 @@ def _history_order(p: Proposal) -> tuple:
 class Store(Protocol):
     def save_proposal(self, p: Proposal) -> None: ...
     def get_proposal(self, pid: str) -> Proposal | None: ...
+    def claim_proposal(self, pid: str) -> bool: ...
     def next_req_number(self) -> int: ...
     def save_requirement(self, r: Requirement) -> None: ...
     def get_requirement(self, key: str) -> Requirement | None: ...
@@ -31,6 +33,9 @@ class Store(Protocol):
     def get_meta(self, key: str, default: str = "") -> str: ...
     def set_meta(self, key: str, value: str) -> None: ...
     def clear(self) -> None: ...
+
+
+_claims = threading.Lock()
 
 
 class MemoryStore:
@@ -50,6 +55,16 @@ class MemoryStore:
     def get_proposal(self, pid: str) -> Proposal | None:
         p = self._proposals.get(pid)
         return p.model_copy(deep=True) if p else None
+
+    def claim_proposal(self, pid: str) -> bool:
+        """pending -> deciding, for exactly one caller: two clicks (or two approvers) must not both file."""
+        with _claims:
+            p = self._proposals.get(pid)
+            if p is None or p.status != "pending":
+                return False
+            p.status = "deciding"
+            self.save_proposal(p)
+            return True
 
     def next_req_number(self) -> int:
         n = self._next
@@ -156,6 +171,20 @@ class FirestoreStore:
     def get_proposal(self, pid: str) -> Proposal | None:
         snap = self._col("proposals").document(pid).get()
         return Proposal.model_validate(snap.to_dict()) if snap.exists else None
+
+    def claim_proposal(self, pid: str) -> bool:
+        """pending -> deciding in a transaction, so only one click or instance decides a proposal."""
+        ref = self._col("proposals").document(pid)
+
+        @self._fs.transactional
+        def claim(tx) -> bool:
+            snap = ref.get(transaction=tx)
+            if not snap.exists or (snap.to_dict() or {}).get("status") != "pending":
+                return False
+            tx.update(ref, {"status": "deciding"})
+            return True
+
+        return claim(self._db.transaction())
 
     def next_req_number(self) -> int:
         ref = self._col("meta").document("counters")
