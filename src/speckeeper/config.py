@@ -33,6 +33,7 @@ class Settings:
     contact_email: str = ""
     demo_channels: tuple[str, ...] = ()  # Slack channel ids where "@Spec Keeper reset demo" is allowed
     allowed_channels: tuple[str, ...] = ()  # channel names or ids Spec Keeper works in; empty: any channel it's in
+    demo_channel_name: str = "project-checkout"  # the channel the landing page sends people to (no #)
     demo_notes_url: str = ""  # the kickoff notes link judges paste; gets a copy button on the landing page
     source_repo: str = "https://github.com/taqelah/speckeeper"
     agent_engine: str = ""  # projects/…/reasoningEngines/<id>: the "why?" agent on Agent Engine (remote.py); local when empty
@@ -65,6 +66,7 @@ class Settings:
             demo_slack_invite=env("DEMO_SLACK_INVITE", ""),
             demo_video_url=env("DEMO_VIDEO_URL", ""),
             contact_email=env("CONTACT_EMAIL", ""),
+            demo_channel_name=env("DEMO_CHANNEL_NAME", "project-checkout").strip().lstrip("#") or "project-checkout",
             demo_notes_url=env("DEMO_NOTES_URL", ""),
             demo_channels=tuple(c.strip() for c in env("DEMO_CHANNELS", "").split(",") if c.strip()),
             allowed_channels=tuple(c.strip().lstrip("#") for c in re.split(r"[,;\s]+", env("ALLOWED_CHANNELS", "")) if c.strip()),

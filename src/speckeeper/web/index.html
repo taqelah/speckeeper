@@ -46,6 +46,8 @@
   .steps li { padding: 18px 0; border-bottom: 1px solid var(--rule); }
   .steps li:last-child { border-bottom: 0; }
   .steps b { font-family: 'Archivo', sans-serif; font-weight: 800; }
+  .sub { margin: 10px 0 0; padding-left: 22px; }
+  .sub li { padding: 4px 0; border: 0; }
   .hint { display: block; font-size: 15px; color: var(--muted); margin-top: 6px; }
   .cmd { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; padding: 8px 8px 8px 12px; border: 1px solid var(--ink); background: #ffffff; }
   .cmd code { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; padding-top: 4px; overflow-wrap: anywhere; color: var(--ink); }
@@ -103,9 +105,10 @@
   </section>
 
   <section class="wrap chapter rule" id="test" aria-labelledby="test-h">
-    <div class="label"><div class="num">II</div><div class="name" id="test-h">Try it yourself</div><p>About ten minutes in #proj-checkout, after joining. Captures take 15 to 45 seconds. $limit.</p></div>
+    <div class="label"><div class="num">II</div><div class="name" id="test-h">Try it yourself</div><p>About ten minutes in #$channel, after joining. Captures take 15 to 45 seconds. $limit.</p></div>
     <ol class="steps body">
-      <li><b>0 · Start clean</b>, if someone tested before you.<span class="cmd"><code>@Spec Keeper reset demo</code><button type="button" class="copy" data-copy="@Spec Keeper reset demo">Copy</button></span><span class="hint">Then open <a href="$prd" target="_blank" rel="noopener">the PRD</a> in a new tab and keep it open: it says “Nothing approved yet”.</span></li>
+      $join
+      <li><b>0 · Start clean</b> in #$channel, if someone tested before you. Type it as a new message in the channel, and pick Spec Keeper from the list as you type @Spec.<span class="cmd"><code>@Spec Keeper reset demo</code><button type="button" class="copy" data-copy="@Spec Keeper reset demo">Copy</button></span><span class="hint">You’ll see “Demo reset…”. If it says someone else is using the demo, they ran it in the last 10 minutes: wait the minutes it gives$video_hint. Then open <a href="$prd" target="_blank" rel="noopener">the PRD</a> in a new tab and keep it open: it says “Nothing approved yet”.</span></li>
       <li><b>1 · Capture the meeting.</b> One card: 5 agreed requirements with their meeting times; the 2 open questions are left out. About 45 seconds.$notes_cmd<span class="hint">After pasting, check that @Spec Keeper turns into a blue mention. If it doesn't, delete it, type @Spec and pick Spec Keeper from the list.</span></li>
       <li><b>2 · Approve all.</b> PRD v1.0.0 and 5 GitHub issues; REQ-7 is the upload limit. Refresh the PRD tab: a criteria table for each requirement.</li>
       <li><b>3 · Change your mind.</b> Reply in the thread, without mentioning Spec Keeper. An eyes reaction at once, then about 20 seconds later a suggestion: REQ-7, 25 MB → 8 MB.<span class="cmd"><code>let's cap uploads at 8 MB</code><button type="button" class="copy" data-copy="let's cap uploads at 8 MB">Copy</button></span></li>
