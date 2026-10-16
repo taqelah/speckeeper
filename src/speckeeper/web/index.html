@@ -220,14 +220,19 @@
   </section>
 
   <section class="wrap chapter rule" id="trust" aria-labelledby="trust-h">
-    <div class="label"><div class="num">VI</div><div class="name" id="trust-h">Trust</div><p>Grounding and guardrails.</p></div>
+    <div class="label"><div class="num">VI</div><div class="name" id="trust-h">Trust</div><p>Grounding, guardrails and security.</p></div>
     <div class="body trust">
       <p><b>Cited or dropped.</b> Every requirement names its Slack message or meeting time; anything Gemini returns without a citation never reaches a card.</p>
       <p><b>Known sources only.</b> Channels it's invited to, meeting notes shared with its account, and CI results from the repo's workflow.</p>
       <p><b>The agent only reads.</b> Three tools over Firestore: requirements, criteria with CI status, change history. It can't change anything, and every tool call is checked and audit-logged.</p>
-      <p><b>A person approves.</b> Nothing is written before someone clicks Approve, and approvers can be limited to named people.</p>
+      <p><b>A person approves.</b> Nothing is written before someone clicks Approve, and approvers can be limited to named people. Each proposal is claimed in one Firestore transaction, so a double click files it once.</p>
       <p><b>Injection-resistant.</b> Rules in Gemini's system instruction, messages fenced as data: 3 of 3 attack messages blocked on real Gemini.</p>
-      <p><b>Safe output.</b> Escaped in Slack (no @channel), mentions defused on GitHub, every decision and refusal audit-logged.</p>
+      <p><b>Safe output.</b> Text from people, Gemini or CI is escaped before it reaches Slack, so cards, open questions and CI summaries can't @channel or post links; mentions are defused on GitHub.</p>
+      <p><b>Locked-down endpoints.</b> Slack requests are signature-checked. The CI webhook checks its secret before reading the body, takes at most 3 MB, and posts only where requirements were captured.</p>
+      <p><b>No message text in analytics.</b> BigQuery, Cloud Trace and Memory Bank keep counts, names, timings and versions, never questions, answers or notes; checked on the live rows.</p>
+      <p><b>Least privilege.</b> Secrets live in Secret Manager, readable only by Spec Keeper's service account; there are no service-account keys. Refused requests and the daily Gemini budget email an alert.</p>
+      <p><b>Demo-safe.</b> Anyone can start clean with <code>reset demo</code>, but not while someone else is in the middle of a run.</p>
+      <p><b>Security-reviewed.</b> On 16 Oct the code, the Google Cloud setup and the dependencies were reviewed; the code fixes shipped with regression tests, and no secret has ever been committed.</p>
     </div>
   </section>
 </main>
