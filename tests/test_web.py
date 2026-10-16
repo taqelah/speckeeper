@@ -73,3 +73,16 @@ def test_a_just_started_instance_serves_the_page_not_an_empty_body(monkeypatch):
     monkeypatch.setattr(main.time, "monotonic", lambda: 5.0)
     res = page().get("/")
     assert res.status_code == 200 and "Nobody told the tests." in res.text
+
+
+def test_try_it_explains_joining_slack_step_by_step_when_there_is_an_invite():
+    body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_channel_name="project-checkout").get("/").text
+    assert "Join the demo Slack" in body and 'href="https://join.slack.com/t/x/shared_invite/abc"' in body
+    assert "six-character code" in body and "Browse channels" in body and "<b>project-checkout</b>" in body
+    assert "About ten minutes in #project-checkout" in body and "Start clean</b> in #project-checkout" in body
+    assert "Join the demo Slack" not in page().get("/").text  # no invite link: no join steps
+
+
+def test_the_reset_hint_offers_the_video_only_when_there_is_one():
+    assert "watch the demo video" not in page().get("/").text
+    assert 'href="https://youtu.be/v"' in page(demo_video_url="https://youtu.be/v").get("/").text.split("Start clean")[1]

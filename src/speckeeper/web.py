@@ -74,8 +74,26 @@ def landing(s: Settings, status: str = "") -> str:
     if not ctas:
         ctas = _link(repo, "See the code", "ghost")
     minutes = int(s.requests_window_seconds // 60)
+    channel = html.escape(s.demo_channel_name)
+    join = ""
+    if s.demo_slack_invite.startswith("https://"):
+        join = (
+            "<li><b>Join the demo Slack</b> (two minutes, once). Nothing to install: Slack works in the browser."
+            '<ol class="sub">'
+            f'<li>Open the <a href="{q(s.demo_slack_invite)}" target="_blank" rel="noopener">invitation link</a>.</li>'
+            "<li>Enter your email. Slack emails you a six-character code; type it in. Not there after a minute? Check spam.</li>"
+            "<li>Choose a name. If Slack offers its app, pick <b>use Slack in your browser</b> instead.</li>"
+            f"<li>In the left sidebar, click <b>Channels</b> → <b>Browse channels</b> (or press Ctrl+K / ⌘K), search <b>{channel}</b>, "
+            "open it and click <b>Join channel</b>. Spec Keeper is already there.</li>"
+            "</ol></li>"
+        )
     return Template((WEB / "index.html").read_text()).safe_substitute(
         ctas=ctas,
+        join=join,
+        video_hint=f', or <a href="{q(s.demo_video_url)}" target="_blank" rel="noopener">watch the demo video</a>'
+        if s.demo_video_url.startswith("https://")
+        else "",
+        channel=channel,
         status=status,
         notes_cmd=(
             f'<span class="cmd"><code>@Spec Keeper {html.escape(s.demo_notes_url)}</code>'
