@@ -83,6 +83,8 @@ class FakeSlack:
         elif method == "users.info":
             name = {"UMAYA": "Maya Lim", "UWEI": "Wei Tan"}.get(args.get("user"), "Someone")
             body.update(user={"id": args.get("user"), "real_name": name, "profile": {}})
+        elif method == "conversations.info":
+            body.update(channel={"id": args.get("channel"), "name": {"C1": "proj-checkout", "C2": "random"}.get(args.get("channel"), "")})
         elif method == "chat.getPermalink":
             body.update(permalink=f"https://slack.test/p{args.get('message_ts')}")
         return body

@@ -223,7 +223,7 @@
     <div class="label"><div class="num">VI</div><div class="name" id="trust-h">Trust</div><p>Grounding, guardrails and security.</p></div>
     <div class="body trust">
       <p><b>Cited or dropped.</b> Every requirement names its Slack message or meeting time; anything Gemini returns without a citation never reaches a card.</p>
-      <p><b>Known sources only.</b> Channels it's invited to, meeting notes shared with its account, and CI results from the repo's workflow.</p>
+      <p><b>Known sources only.</b> Only the project channels it's set up for (anywhere else it says so and reads nothing), meeting notes shared with its account, and CI results from the repo's workflow.</p>
       <p><b>The agent only reads.</b> Three tools over Firestore: requirements, criteria with CI status, change history. It can't change anything, and every tool call is checked and audit-logged.</p>
       <p><b>A person approves.</b> Nothing is written before someone clicks Approve, and approvers can be limited to named people. Each proposal is claimed in one Firestore transaction, so a double click files it once.</p>
       <p><b>Injection-resistant.</b> Rules in Gemini's system instruction, messages fenced as data: 3 of 3 attack messages blocked on real Gemini.</p>

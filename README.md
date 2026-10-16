@@ -114,6 +114,9 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   captured, and every requirement must cite a message that is really in the thread.
 - **Output.** Text from people or Gemini is escaped before it reaches Slack (no `<!channel>` or crafted
   links) and @mentions in GitHub text are defused.
+- **Channels.** `ALLOWED_CHANNELS` (names or ids) limits Spec Keeper to the project channels it's set up for.
+  One store serves every channel, so elsewhere a mention gets a one-line reply, and clicks and thread messages
+  do nothing.
 - **Decisions.** Each proposal is claimed atomically (a Firestore transaction) before it is approved or
   dismissed, so a double click or two approvers can't file it twice. `reset demo` waits 10 minutes after
   someone else last used the demo, so it can't wipe a run in progress.
@@ -176,7 +179,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-177 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+182 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.

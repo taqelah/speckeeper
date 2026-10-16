@@ -14,6 +14,7 @@ from collections import deque
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from slack_bolt import BoltResponse
 from slack_bolt.async_app import AsyncApp
 
 from .audit import audit
@@ -78,17 +79,53 @@ def build_slack_app(
     per_user: int = 10,
     per_seconds: float = 600,
     demo_channels: tuple[str, ...] = (),
+    allowed_channels: tuple[str, ...] = (),
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
     before the HTTP response so the test can check what was posted (thread watch then checks at once).
     `quiet` is how long a watched thread must be still before thread watch looks at it. `approvers`: Slack
     user ids allowed to approve or dismiss (empty: anyone in the channel). `per_user` requests that call
-    Gemini are allowed per user in `per_seconds`."""
+    Gemini are allowed per user in `per_seconds`. `allowed_channels`: channel names or ids Spec Keeper
+    works in (empty: any channel it's in); everything from other channels is turned away."""
     app = AsyncApp(token=token, signing_secret=signing_secret, client=client, process_before_response=wait)
     names: dict[str, str] = {}  # Slack user id -> display name, kept across calls
     pending: dict[str, asyncio.Task] = {}  # thread -> its waiting thread-watch check
     seen: dict[str, list[str]] = {}  # thread -> messages marked 👀 that its next check covers
     recent: dict[str, deque] = {}  # user -> times of their recent Gemini requests
+    channel_names: dict[str, tuple[str, float]] = {}  # channel id -> (name, when looked up)
+
+    async def channel_ok(client, channel: str) -> bool:
+        """Is this one of the channels Spec Keeper works in? Names are looked up once and kept 10 minutes."""
+        if not allowed_channels or not channel or channel in allowed_channels:
+            return True
+        hit = channel_names.get(channel)
+        if hit is None or time.monotonic() - hit[1] > 600:
+            try:
+                info = await client.conversations_info(channel=channel)
+                hit = (info["channel"].get("name", ""), time.monotonic())
+            except Exception:  # unknown or inaccessible channel: not allowed
+                hit = ("", time.monotonic())
+            channel_names[channel] = hit
+        return hit[0] in allowed_channels
+
+    @app.middleware
+    async def only_allowed_channels(body, client, ack, next):
+        # One store serves every channel, so Spec Keeper answers, captures and approves only in the
+        # channels it's set up for; anywhere else it would read or change another channel's requirements.
+        event = body.get("event") or {}
+        channel = event.get("channel") or (body.get("channel") or {}).get("id", "")
+        if await channel_ok(client, channel):
+            await next()
+            return
+        if body.get("type") == "block_actions":
+            await ack()
+            audit("channel_refused", "WARNING", channel=channel, kind="click", user=(body.get("user") or {}).get("id", ""))
+        if event.get("type") == "app_mention":  # plain messages elsewhere are ignored without a trace
+            audit("channel_refused", "WARNING", channel=channel, kind="mention", user=event.get("user", ""))
+            where = ", ".join(f"#{c}" if not c[:1].isupper() else f"<#{c}>" for c in allowed_channels)
+            await client.chat_postMessage(channel=channel, thread_ts=event.get("thread_ts") or event.get("ts"), text=f"I'm only set up to work in {where}.")
+        return BoltResponse(status=200, body="")  # handled here: a 404 would make Slack retry
+
     last_use: dict[str, tuple[str, float]] = {}  # channel -> (user, time) of the last mention or click
 
     def used(channel: str, user: str) -> tuple[str, float] | None:
