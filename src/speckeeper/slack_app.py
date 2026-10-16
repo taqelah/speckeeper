@@ -302,11 +302,11 @@ def build_slack_app(
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
         for i, p in enumerate(proposals):
-            blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
+            card = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else {"blocks": approval_card(p)}
             if i == 0:
-                res = await client.chat_update(channel=channel, ts=working["ts"], text="Captured a requirement", blocks=blocks)
+                res = await client.chat_update(channel=channel, ts=working["ts"], text="Captured a requirement", **card)
             else:
-                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Captured a requirement", blocks=blocks)
+                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Captured a requirement", **card)
             svc.set_card(p.id, res["ts"])
 
     async def capture_meeting(client, channel: str, thread_ts: str, doc_id: str) -> None:
@@ -368,12 +368,12 @@ def build_slack_app(
                 channel=channel, ts=working["ts"], text=f":pencil2: The notes were edited since {since}: " + ", ".join(parts) + ". Cards below."
             )
             for p in result.proposals:
-                blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
+                card = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else {"blocks": approval_card(p)}
                 res = await client.chat_postMessage(
                     channel=channel,
                     thread_ts=thread_ts,
                     text="Change from the meeting notes" if p.kind == "change" else "New requirement from the meeting notes",
-                    blocks=blocks,
+                    **card,
                 )
                 svc.set_card(p.id, res["ts"])
             return
@@ -392,7 +392,11 @@ def build_slack_app(
 
     async def stale(client, body) -> None:
         await client.chat_update(
-            channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}]
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text=STALE,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}],
+            attachments=[],
         )
 
     def prd_link(text: str = "the PRD") -> str:
@@ -408,11 +412,28 @@ def build_slack_app(
         text = f"{count} issue" + ("s" if count != 1 else "")
         return f"<https://github.com/{repo}/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|{text}>" if repo else text
 
+    def without_buttons(message: dict, line: str) -> dict:
+        """The card as it is, its buttons swapped for a line of text where they were (in the blocks, or in
+        the last attachment of a change card). chat.update arguments; attachments are always sent, since
+        Slack keeps the old ones, buttons and all, when they are left out."""
+        line_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": line}]}
+        blocks = [blk for blk in message.get("blocks", []) if blk["type"] != "actions"]
+        attachments, placed = [], False
+        for att in message.get("attachments", []):
+            kept = [blk for blk in att.get("blocks", []) if blk["type"] != "actions"]
+            if len(kept) < len(att.get("blocks", [])):
+                kept.append(line_block)
+                placed = True
+            color = att.get("color", "")
+            attachments.append({"fallback": att.get("fallback", ""), "blocks": kept, **({"color": "#" + color.lstrip("#")} if color else {})})
+        if not placed:
+            blocks.append(line_block)
+        return {"blocks": blocks, "attachments": attachments}
+
     async def working(client, body, text: str) -> None:
         """Swap a card's buttons for a progress line at once, so a second click can't land while issues are written."""
-        kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
-        kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f":hourglass_flowing_sand: {text}"}]})
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text, blocks=kept)
+        card = without_buttons(body["message"], f":hourglass_flowing_sand: {text}")
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text, **card)
 
     def _group_title(body) -> str:
         first = body["message"]["blocks"][0]["text"]["text"]
@@ -497,9 +518,8 @@ def build_slack_app(
             if outdated:
                 note += f" Stale until tests are updated to @v{r.version}: {', '.join(outdated)}."
             # Keep the diff on the card; swap the buttons for what happened.
-            kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
-            kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
-            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
+            card = without_buttons(body["message"], note)
+            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **card)
             return
         note = (
             f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}."
@@ -519,7 +539,7 @@ def build_slack_app(
             return
         audit("dismissed", user=user, proposal=pid, target=p.target)
         note = f"Dismissed by <@{user}>. Nothing was written."
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note), attachments=[])
 
     @app.action(EDIT)
     async def on_edit(ack, body, client):

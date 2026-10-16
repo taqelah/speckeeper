@@ -186,7 +186,7 @@ asia-southeast1, secrets from Secret Manager). To answer questions on Agent Engi
 uv run pytest
 ```
 
-185 tests, about three seconds, no network. 44 of them run the whole app end to end: Slack-signed
+190 tests, about three seconds, no network. 49 of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
