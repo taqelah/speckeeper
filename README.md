@@ -26,7 +26,7 @@ Vertex AI and the Agent Development Kit.
 | **3. Verify in CI** | (automatic) | Tests named after a criterion (`AC-7-1@v1 shows the 25 MB limit`) report from GitHub Actions; Spec Keeper posts each criterion as passing or failing, and the requirement as verified only when all pass |
 | **4. Catch a change** | `@Spec Keeper capture this` on a thread like "let's cap uploads at 10 MB" | Recognises that this changes REQ-7, shows the old and new criteria as a diff with both sources, and warns which tests are now **stale**. Approve makes REQ-7 v2 (PRD v1.1.0), never a second, contradicting requirement |
 | **5. Stale, not green** | (automatic) | The next CI run still passes the old 25 MB test, and Spec Keeper reports it as stale, not verified, until the test is updated to `@v2` |
-| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation |
+| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation. If the requirement changed since you last asked, it says so first |
 
 ## How it works
 
@@ -44,9 +44,9 @@ flowchart LR
         A[GitHub Actions<br/>JUnit results]
     end
     subgraph Spec Keeper [Spec Keeper service]
-        E[Capture<br/>Gemini, schema output,<br/>citations checked]
+        E[Capture<br/>ADK pipeline: triage,<br/>capture, citation check]
         G[Approval cards<br/>in Slack]
-        Q[ADK agent<br/>questions with tools]
+        Q[ADK agent<br/>questions with tools,<br/>on Agent Engine]
         C[CI mapping<br/>AC keys, stale rule]
         D[(Requirements,<br/>versions, sources)]
     end
@@ -74,9 +74,11 @@ flowchart LR
   click in Slack.
 - **No citation, no requirement.** Gemini must cite the messages or meeting passages each requirement
   came from, and anything citing a source that wasn't in the input is dropped before a card is shown.
-- **Schema calls for extraction, an agent for questions.** Capture is one Gemini call with a strict
-  JSON schema, where a fixed shape and the citation check matter most. Open-ended questions go to an
-  ADK agent that chooses its tools (`list_requirements`, `get_requirement`, `get_history`).
+- **Fixed pipelines for extraction, an agent for questions.** Capture and thread watch are ADK
+  `SequentialAgent` pipelines with strict JSON schemas: a Flash triage agent and a gate step, then a Pro
+  capture agent and a citation-check step, where a fixed shape and the citation check matter most.
+  Open-ended questions go to an ADK agent that chooses its tools (`list_requirements`, `get_requirement`,
+  `get_history`), running on Vertex AI Agent Engine with Memory Bank.
 - **Versions per requirement, and per criterion.** A change bumps REQ-7 to v2; each criterion keeps
   its key and takes the new version only if its text changed. Tests carry the version they were
   written for (`AC-7-1@v2`), which is what makes stale tests detectable.
@@ -96,7 +98,10 @@ This is a hackathon prototype.
 | CI verification per criterion, with stale tests | |
 | Change detection: REQ-7 v1 to v2 with a diff | |
 | Thread watch: suggests a capture when a thread it was mentioned in changes a requirement | |
-| ADK question agent with sources | |
+| ADK question agent with sources, on Agent Engine with Memory Bank | |
+| Capture and thread watch as ADK multi-agent pipelines | |
+| Analytics in BigQuery and traces in Cloud Trace | |
+| Limited to the allowed project channels | |
 | Deployed on Cloud Run with Firestore and Secret Manager | |
 
 The demo product Spec Keeper watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
@@ -161,17 +166,19 @@ uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080
 cloudflared tunnel --url http://localhost:8080    # a public URL for Slack and GitHub while running locally
 ```
 
-**Slack app:** bot scopes `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`,
+**Slack app:** create it from [slack-manifest.yaml](slack-manifest.yaml), or by hand with bot scopes `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`,
 `groups:history`, `groups:read`, `users:read`; bot events `app_mention`, `message.channels`,
 `message.groups`; Event Subscriptions and Interactivity request URL `<public URL>/slack/events`.
-Invite the bot to the project channel.
+Invite the bot to the project channel, and set `ALLOWED_CHANNELS` to it (and `APPROVERS` to limit who
+can approve).
 
 **CI in the product repo:** start each test name with the criterion key and version
 (`AC-7-1@v1 …`) and post the JUnit XML to `<public URL>/ci` with the header
 `X-SpecKeeper-Secret` (see checkout-app's workflow).
 
 **Deploy:** `GCP_PROJECT=... GITHUB_REPO=org/repo PRD_DOC_ID=... ./deploy.sh` (Cloud Run,
-asia-southeast1, secrets from Secret Manager).
+asia-southeast1, secrets from Secret Manager). To answer questions on Agent Engine, run
+`GCP_PROJECT=... ./deploy_agent.sh` once, then set `AGENT_ENGINE` to the name it prints and deploy again.
 
 ## Test
 
@@ -179,7 +186,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-182 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+185 tests, about three seconds, no network. 44 of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
