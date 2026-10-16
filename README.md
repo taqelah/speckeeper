@@ -114,6 +114,11 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   captured, and every requirement must cite a message that is really in the thread.
 - **Output.** Text from people or Gemini is escaped before it reaches Slack (no `<!channel>` or crafted
   links) and @mentions in GitHub text are defused.
+- **Decisions.** Each proposal is claimed atomically (a Firestore transaction) before it is approved or
+  dismissed, so a double click or two approvers can't file it twice. `reset demo` waits 10 minutes after
+  someone else last used the demo, so it can't wipe a run in progress.
+- **CI webhook.** The secret is checked before the body is read, the body is capped at 3 MB, and results
+  are posted only in channels where requirements were captured.
 - **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
   JUnit XML, parsed with `defusedxml`. Each user gets 10 Gemini requests per 10 minutes, and a daily token
   budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached. The question agent checks it before every
@@ -171,7 +176,7 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-169 tests, about three seconds, no network. Thirty of them run the whole app end to end: Slack-signed
+177 tests, about two seconds, no network. Thirty of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.

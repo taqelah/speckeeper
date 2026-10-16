@@ -72,7 +72,8 @@ def test_rows_carry_tokens_and_tools_but_no_words():
     by_type = {}
     for row in rows:
         by_type.setdefault(row["event_type"], []).append(row)
-    assert {"USER_MESSAGE_RECEIVED", "LLM_REQUEST", "LLM_RESPONSE", "TOOL_STARTING", "TOOL_COMPLETED", "AGENT_RESPONSE"} <= set(by_type)
+    assert {"USER_MESSAGE_RECEIVED", "LLM_RESPONSE", "TOOL_STARTING", "TOOL_COMPLETED", "AGENT_RESPONSE", "INVOCATION_COMPLETED"} <= set(by_type)
+    assert set(by_type) <= set(analytics.EVENTS)  # nothing else: no state deltas, no requests
     first, last = (json.loads(r["content"]) if isinstance(r["content"], str) else r["content"] for r in by_type["LLM_RESPONSE"])
     assert first["response"] == "call: get_requirement" and first["usage"]["prompt"] == 80 and first["usage"]["completion"] == 20
     assert last["response"].startswith("text, ") and last["response"].endswith(" chars")
@@ -101,3 +102,45 @@ def test_redact_keeps_counts_and_names_only():
     assert analytics.redact({"text_summary": "secret question"}, "USER_MESSAGE_RECEIVED") == {"question_chars": 15}
     assert analytics.redact("You are SpecKeeper…", "AGENT_STARTING") is None
     assert analytics.redact({"error_traceback": "secret"}, "AGENT_ERROR") is None
+
+
+def test_capture_and_thread_watch_rows_hold_no_requirement_text():
+    # The pipelines keep the extracted requirements and the triage summary in session state; on Oct 16
+    # that state reached BigQuery through the plugin's session metadata and STATE_DELTA rows.
+    from test_agent_callbacks import llm
+
+    from speckeeper.models import Source
+    from speckeeper.pipelines import AdkEngine
+
+    made = []
+
+    def plugins():
+        (plugin,) = analytics.analytics_plugins("p", "d")
+        made.append(captured(plugin))
+        return [plugin]
+
+    extraction = json.dumps(
+        {
+            "requirements": [
+                {
+                    "title": "Upload size limit is 8 MB",
+                    "acceptance_criteria": [{"given": "a 9 MB file", "when": "uploaded", "then": "it is rejected"}],
+                    "source_ts": ["1.1"],
+                    "changes": "",
+                }
+            ],
+            "open_questions": ["Compress photos first?"],
+        }
+    )
+    triage = json.dumps({"verdict": "change", "target": "REQ-7", "confidence": 0.9, "summary": "upload limit 25 MB to 8 MB", "source_ts": ["1.1"]})
+    engine = AdkEngine(llm("pro", extraction), llm("flash", triage), plugins=plugins)
+    msgs = [Source(ts="1.1", user="UMAYA", text="Agreed: cap uploads at 8 MB.")]
+    reqs, _ = engine.capture(msgs, [])
+    from speckeeper.models import Requirement
+
+    assert reqs and engine.triage([], msgs, [Requirement(key="REQ-7", title="25 MB", status="approved")], 0.8)
+    rows = [r for rows in made for r in rows]
+    dumped = json.dumps(rows, default=str)
+    assert rows and all(r["event_type"] in analytics.EVENTS for r in rows)
+    for words in ("Upload size limit", "8 MB", "Compress photos", "upload limit", "cap uploads"):
+        assert words not in dumped, words

@@ -331,7 +331,7 @@ def test_E2E_08_green_ci_verifies_a_requirement_in_slack_and_on_its_issue():
     app = App()
     kickoff_approved(app)
     res = app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True), ("renders the page", True)))
-    assert res.json() == {"requirements": ["REQ-7"], "unmapped": ["renders the page"]}
+    assert res.json() == {"requirements": ["REQ-7"], "unmapped": ["renders the page"], "posted": True}
     assert "REQ-7 is verified" in app.slack.posted("chat.postMessage")[-1]["text"]
     assert app.issues.comments[-1][0] == 1
 

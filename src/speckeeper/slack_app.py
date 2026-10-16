@@ -47,6 +47,7 @@ TZ = "Asia/Singapore"  # how message times are written in citations
 
 # How people ask for a capture, and how questions start. A mention with a notes link always reads the notes.
 CAPTURE_WORDS = {"capture", "analyse", "analyze", "review", "check", "read", "sync", "update", "process", "summarise", "summarize"}
+RESET_GRACE_SECONDS = 600  # a reset waits this long after someone else last used the demo
 QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "how", "where", "are", "does", "can"}
 
 
@@ -88,6 +89,13 @@ def build_slack_app(
     pending: dict[str, asyncio.Task] = {}  # thread -> its waiting thread-watch check
     seen: dict[str, list[str]] = {}  # thread -> messages marked 👀 that its next check covers
     recent: dict[str, deque] = {}  # user -> times of their recent Gemini requests
+    last_use: dict[str, tuple[str, float]] = {}  # channel -> (user, time) of the last mention or click
+
+    def used(channel: str, user: str) -> tuple[str, float] | None:
+        """Records who just used Spec Keeper in a channel; returns who did before."""
+        before = last_use.get(channel)
+        last_use[channel] = (user, time.monotonic())
+        return before
 
     def over_limit(user: str) -> int:
         """Seconds until this user may ask again (0: go ahead). Captures and questions cost Gemini quota."""
@@ -114,6 +122,7 @@ def build_slack_app(
     async def may_decide(client, body) -> bool:
         """Approve and Dismiss change the PRD: only the approvers may click them, when a list is set."""
         user = body["user"]["id"]
+        used(body.get("channel", {}).get("id", ""), user)  # a click counts as using the demo (see reset demo)
         if not approvers or user in approvers:
             return True
         audit("decision_refused", "WARNING", user=user, action=body["actions"][0]["action_id"], channel=body["channel"]["id"])
@@ -147,10 +156,21 @@ def build_slack_app(
         thread_ts = event.get("thread_ts") or event["ts"]
         doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
         first = text.split(" ", 1)[0].strip(",.:!") if text else ""
+        before = used(channel, event.get("user", ""))
         if text.startswith("reset demo"):
             user = event.get("user", "")
             if channel not in demo_channels:
                 await say(text="Reset only works in the demo channel.", thread_ts=thread_ts)
+                return
+            # Anyone may start clean, but not in the middle of someone else's run.
+            if before and before[0] != user and time.monotonic() - before[1] < RESET_GRACE_SECONDS:
+                wait_min = int((RESET_GRACE_SECONDS - (time.monotonic() - before[1])) // 60) + 1
+                audit("demo_reset_refused", "WARNING", user=user, channel=channel)
+                last_use[channel] = before  # a refused reset doesn't take the demo over from the person running it
+                await say(
+                    text=f"Someone else is using the demo right now. To avoid wiping their run, try `reset demo` again in about {wait_min} min.",
+                    thread_ts=thread_ts,
+                )
                 return
             if await busy(client, channel, thread_ts, user):
                 return
@@ -241,7 +261,7 @@ def build_slack_app(
         if not proposals:
             note = "I didn't find an agreed requirement with a source in this thread."
             if questions:
-                note += "\nOpen questions:\n" + "\n".join(f"• {q}" for q in questions)
+                note += "\nOpen questions:\n" + "\n".join(f"• {_esc(q)}" for q in questions)  # Gemini text: no pings or links
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
         for i, p in enumerate(proposals):
