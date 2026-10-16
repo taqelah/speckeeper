@@ -116,6 +116,7 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         per_user=s.requests_per_user,
         per_seconds=s.requests_window_seconds,
         demo_channels=s.demo_channels,
+        allowed_channels=s.allowed_channels,
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
