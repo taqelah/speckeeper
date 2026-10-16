@@ -35,6 +35,10 @@
   .status .live { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: var(--ok); }
   .status .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
   .status .warn { color: var(--stale); font-weight: 800; }
+  .demo { padding-bottom: 56px; display: flex; flex-direction: column; gap: 14px; }
+  .demo .kicker { margin: 0; }
+  .video { position: relative; aspect-ratio: 16 / 9; border: 2px solid var(--ink); background: var(--ink); }
+  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .chapter { padding-top: 48px; padding-bottom: 48px; display: flex; flex-wrap: wrap; gap: 40px; }
   .chapter > .label { flex: 1 1 220px; min-width: 0; font-family: 'Archivo', sans-serif; }
   .chapter > .label .num { font-size: 72px; font-weight: 900; line-height: 1; color: var(--accent); }
@@ -86,7 +90,7 @@
 
 <main id="top">
   <section class="wrap hero">
-    <h1>The spec changed in Slack. <span>Nobody told the tests.</span></h1>
+    <h1>AI made shipping faster. <span>Specs can’t keep up.</span></h1>
     <div class="lede-row rule">
       <p class="lede">Spec Keeper is an agent in your team's Slack. It turns what a meeting or a thread decided into requirements, writes the PRD and GitHub issues once someone approves, checks every criterion in CI, and flags tests that still pass against yesterday's spec.</p>
       <div class="act">
@@ -94,6 +98,11 @@
         $status
       </div>
     </div>
+  </section>
+
+  <section class="wrap demo" id="demo" aria-labelledby="demo-h">
+    <p class="kicker" id="demo-h"><b>The demo</b> · 2:46</p>
+    <div class="video"><iframe src="https://www.youtube-nocookie.com/embed/xVQnzTEOaO4?rel=0" title="Spec Keeper demo video" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
   </section>
 
   <section class="wrap chapter rule" id="problem" aria-labelledby="problem-h">
