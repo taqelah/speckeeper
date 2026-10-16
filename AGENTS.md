@@ -28,8 +28,12 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
 5. **Secrets stay out of git.** `.env` and `.data/` are ignored; keep them that way. Never print a
    token or secret in logs, tests or commit messages.
 6. **Every Slack request is verified** (signing secret) and `/ci` needs `X-SpecKeeper-Secret`. Don't
-   add endpoints without the same protection. The API listing (`/docs`) stays off.
-7. **Commits:** plain messages describing the change. No tool attribution lines (`Co-Authored-By`,
+   add endpoints without the same protection. The API listing (`/docs`) stays off. Slack handlers work
+   only in `ALLOWED_CHANNELS` (a Bolt middleware); keep new handlers behind it.
+7. **Escape what reaches Slack or GitHub.** Text from people or Gemini is escaped before Slack sees it
+   and @mentions are defused in GitHub text. A proposal is claimed atomically before it is approved or
+   dismissed, so it can't be filed twice.
+8. **Commits:** plain messages describing the change. No tool attribution lines (`Co-Authored-By`,
    "Generated with …").
 
 ## Commands
@@ -44,21 +48,27 @@ uv run --env-file .env adk web agents                 # ADK web UI for the quest
 uv run --env-file .env --group eval python -m evals.qa.run   # ADK eval of the question agent (real Gemini, ~10 min)
 uv run --env-file .env python -m speckeeper.backfill  # issues for requirements approved before GitHub was set up (server stopped)
 GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
+GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AGENT_ENGINE_ID=... to update)
 ```
 
 ## Code map
 
 | Path | Role |
 |---|---|
-| `src/speckeeper/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
-| `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
+| `src/speckeeper/main.py` | FastAPI app: `/` (landing page), `/slack/events`, `/ci`, `/health`; builds the service from settings |
+| `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages, `reset demo`; the `ALLOWED_CHANNELS` middleware |
 | `src/speckeeper/service.py` | What Spec Keeper does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
 | `src/speckeeper/extract.py` | Capture and thread-watch prompts, response schemas and checks (`cited`, `passes_gate`); changes to approved requirements marked |
 | `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback. Guardrails are ADK callbacks (`guardrails()`): budget before each model call, tokens after, tool checks and audit, fallback on a rate limit |
 | `src/speckeeper/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
 | `src/speckeeper/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
 | `src/speckeeper/cards.py` | Block Kit: approval, baseline, change and decided cards |
-| `src/speckeeper/integrations.py` | Google Docs PRD (append only) and GitHub issues |
+| `src/speckeeper/integrations.py` | Google Docs PRD and GitHub issues (@mentions defused) |
+| `src/speckeeper/prd.py` | The PRD as one HTML page, rebuilt from the store on every change and imported into the doc |
+| `src/speckeeper/audit.py` | Structured audit entries for Cloud Logging (`jsonPayload.audit.event`) |
+| `src/speckeeper/budget.py` | Daily Gemini token cap (`DAILY_TOKEN_BUDGET`), per instance |
+| `src/speckeeper/web.py`, `web/` | The landing page at `/`, filled in from settings, and its images |
+| `src/speckeeper/backfill.py` | Issues for requirements approved before GitHub was set up |
 | `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
@@ -69,6 +79,7 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
 | `src/speckeeper/analytics.py` | ADK's BigQuery agent analytics plugin when `ANALYTICS_DATASET` is set (`deploy.sh` sets `speckeeper_analytics`); `redact()` keeps counts and names, never text. Queries in `analytics/queries.sql` |
 | `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
+| `slack-manifest.yaml` | The Slack app: scopes, events, request URLs |
 | `evals/notes/` | Meeting notes fixtures |
 | `evals/qa/` | ADK eval of the question agent: `fixture.py` (a fixed project), `cases.py` (questions, expected tool calls, reference answers), `run.py` (AgentEvaluator; writes `report.json`) |
 
@@ -98,8 +109,11 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
    changes → Approve → new requirement, or the next version of the existing one.
 3. **CI:** GitHub Actions posts JUnit to `/ci` → each test maps to an AC by the key at the start of
    its name (`AC-7-1@v1 …`) → passing, failing or stale → Slack message and issue comment.
-4. **Questions:** any mention phrased as a question → the ADK agent → tools read the store →
-   answer with sources.
+4. **Questions:** any mention phrased as a question → the ADK agent (on Agent Engine when
+   `AGENT_ENGINE` is set, else local) → tools read the store → answer with sources, starting with what
+   changed since the person last asked (Memory Bank).
+5. **Reset:** `@Spec Keeper reset demo` in a `DEMO_CHANNELS` channel clears the demo, unless someone
+   else used it in the last 10 minutes.
 
 Slack acks every request within 3 seconds; handlers do the slow work after. On Cloud Run this
 needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instance).
@@ -107,7 +121,11 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 ## Testing
 
 - `pytest`, fakes only. `tests/test_core.py` (service), `test_meeting.py` (meetings, versions,
-  changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted model, no network), `test_app.py` (HTTP basics), `test_e2e.py`
+  changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted
+  model, no network), `test_pipelines.py` (the capture and thread-watch pipelines), `test_watch.py`
+  (thread watch, W-), `test_memory.py` (Memory Bank), `test_remote.py` (Agent Engine and its fallback),
+  `test_security.py` (security fixes, N-12 on), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
+  `test_analytics.py`, `test_tracing.py`, `test_web.py`, `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
 - **End-to-end tests** send Slack-signed requests through the real FastAPI and Bolt app. Slack is a
   local fake HTTP server (`FakeSlack`) that answers the Web API and records every call; Bolt builds
@@ -131,6 +149,16 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 `GCP_LOCATION` (asia-southeast1, for Cloud Run and Firestore), `GEMINI_LOCATION` (global),
 `GEMINI_PRO_MODEL`, `GEMINI_FLASH_MODEL`, `PRD_DOC_ID`, `GITHUB_TOKEN`, `GITHUB_REPO`, `CI_SECRET`,
 `SPECKEEPER_STORE` (`memory`, `file`, `firestore`), `FIRST_REQ` (7 for the demo).
+
+Optional, all read in `config.py` (or `budget.py`):
+
+- Access: `ALLOWED_CHANNELS` (names or ids; empty = every channel), `APPROVERS` (Slack user ids),
+  `DEMO_CHANNELS` (ids where `reset demo` works).
+- Limits: `REQUESTS_PER_USER`, `REQUESTS_WINDOW_SECONDS` (10 per 10 minutes), `DAILY_TOKEN_BUDGET`.
+- Thread watch: `WATCH_QUIET_SECONDS`, `WATCH_MIN_CONFIDENCE`, `WATCH_THINKING`.
+- Google Cloud: `AGENT_ENGINE` (the engine's resource name), `ANALYTICS_DATASET`, `TRACE_TO_CLOUD=1`.
+- Landing page: `DEMO_SLACK_INVITE`, `DEMO_VIDEO_URL`, `CONTACT_EMAIL`, `DEMO_CHANNEL_NAME`,
+  `DEMO_NOTES_URL`, `SOURCE_REPO`.
 
 ## Things that bit us
 
@@ -158,5 +186,9 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   Run `gh` with `env -u GITHUB_TOKEN`.
 - **The server keeps its own copy of the file store**; stop it before scripts that write to
   `.data/store.json`.
+- **gcloud splits `--set-env-vars` on commas**, which broke list values (`ALLOWED_CHANNELS`,
+  `APPROVERS`). `deploy.sh` uses the `^@^` delimiter; keep it.
+- **ADK's BigQuery plugin copies session state into rows** unless `log_session_metadata` is off, and
+  that state held extracted requirements. Keep it off and log only the event types `redact()` handles.
 - **Write tests from the approved criteria, not from memory.** Gemini words the criteria; a test
   named `AC-7-1` that checks something else is a false green.
