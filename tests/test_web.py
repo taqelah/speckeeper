@@ -18,7 +18,8 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     res = http.get("/")
     assert res.status_code == 200 and "text/html" in res.headers["content-type"]
     body = res.text
-    assert "Nobody told the tests." in body and "The problem" in body and "AC-7-1@v1" in body
+    assert "Specs can’t keep up." in body and "The problem" in body and "AC-7-1@v1" in body
+    assert "youtube-nocookie.com/embed/xVQnzTEOaO4" in body and body.index('id="demo"') < body.index('id="problem"')  # the demo video, before the problem
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
     assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
@@ -47,7 +48,7 @@ def test_the_status_line_never_breaks_the_page():
     app = App()
     app.svc.store.requirements = lambda: (_ for _ in ()).throw(RuntimeError("Firestore down"))
     body = TestClient(create_app(settings(), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True)).get("/").text
-    assert "Live on Cloud Run" in body and "Nobody told the tests." in body
+    assert "Live on Cloud Run" in body and "Specs can’t keep up." in body
 
 
 def test_copy_buttons_carry_the_test_inputs():
@@ -72,7 +73,7 @@ def test_a_just_started_instance_serves_the_page_not_an_empty_body(monkeypatch):
 
     monkeypatch.setattr(main.time, "monotonic", lambda: 5.0)
     res = page().get("/")
-    assert res.status_code == 200 and "Nobody told the tests." in res.text
+    assert res.status_code == 200 and "Specs can’t keep up." in res.text
 
 
 def test_try_it_explains_joining_slack_step_by_step_when_there_is_an_invite():
@@ -93,3 +94,25 @@ def test_try_it_shows_memory_bank_and_trust_names_recovery_and_supply_chain():
     assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "3 · Ask a question</b> in the same thread" in body
     assert "6 · Ask why." in body and "changed since you last asked" in body and "7 · Try to break it" in body
     assert "Recoverable and audited." in body and "point-in-time recovery" in body and "Supply chain." in body
+
+
+def test_every_link_off_the_page_opens_in_a_new_tab():
+    import re
+
+    body = (
+        page(
+            prd_doc_id="DOC1",
+            github_repo="taqelah/checkout-app",
+            demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc",
+            demo_video_url="https://youtu.be/v",
+            contact_email="a@b.co",
+            demo_notes_url="https://docs.google.com/document/d/N/edit",
+        )
+        .get("/")
+        .text
+    )
+    links = re.findall(r"<a [^>]*>", body)
+    away = [a for a in links if not re.search(r'href="#', a)]
+    assert len(away) > 15 and all('target="_blank"' in a and 'rel="noopener"' in a for a in away)
+    assert all(a.count("target=") <= 1 for a in links)  # never added twice
+    assert '<a class="brand" href="#top">' in body  # links within the page stay in the tab

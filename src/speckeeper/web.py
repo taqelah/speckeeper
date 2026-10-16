@@ -4,6 +4,7 @@ web/index.html, with the links and limits filled in from settings; buttons for l
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime
 from pathlib import Path
 from string import Template
@@ -65,6 +66,11 @@ def status_strip(svc) -> str:
     return '<p class="status" aria-label="Live status">' + " · ".join(parts) + "</p>"
 
 
+# Every link that leaves the page opens in a new tab, so the page stays open behind it; links within
+# the page (href="#...") and links that already say where to open are left alone.
+NEW_TAB = re.compile(r'<a ((?![^>]*\btarget=)[^>]*\bhref="(?!#)[^"]*"[^>]*?)>')
+
+
 def landing(s: Settings, status: str = "") -> str:
     def q(v):
         return html.escape(v, quote=True)
@@ -87,7 +93,7 @@ def landing(s: Settings, status: str = "") -> str:
             "open it and click <b>Join channel</b>. Spec Keeper is already there.</li>"
             "</ol></li>"
         )
-    return Template((WEB / "index.html").read_text()).safe_substitute(
+    page = Template((WEB / "index.html").read_text()).safe_substitute(
         ctas=ctas,
         join=join,
         video_hint=f', or <a href="{q(s.demo_video_url)}" target="_blank" rel="noopener">watch the demo video</a>'
@@ -108,3 +114,4 @@ def landing(s: Settings, status: str = "") -> str:
         repo=q(repo),
         contact=f' Questions: <a href="mailto:{q(s.contact_email)}">{html.escape(s.contact_email)}</a>' if s.contact_email else "",
     )
+    return NEW_TAB.sub(r'<a \1 target="_blank" rel="noopener">', page)
