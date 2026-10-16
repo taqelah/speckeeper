@@ -19,7 +19,7 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
 1. **Nothing is written without a person.** Capture only proposes. The PRD, GitHub issues and
    requirement versions change only on Approve. Never add a path that writes on its own.
 2. **No citation, no requirement.** Every requirement must cite a message or meeting passage that
-   was really in the input. `extract.py` drops anything Gemini cites that isn't there; keep that.
+   was really in the input. The `citation_check` step (`extract.cited`) drops anything Gemini cites that isn't there; keep that.
 3. **A change is a new version of the same requirement**, never a second requirement. REQ-7 v1
    becomes REQ-7 v2; criteria keep their keys; a criterion whose text changed goes stale if a test
    had proved the old text.
@@ -28,8 +28,12 @@ The demo product it watches is [taqelah/checkout-app](https://github.com/taqelah
 5. **Secrets stay out of git.** `.env` and `.data/` are ignored; keep them that way. Never print a
    token or secret in logs, tests or commit messages.
 6. **Every Slack request is verified** (signing secret) and `/ci` needs `X-SpecKeeper-Secret`. Don't
-   add endpoints without the same protection. The API listing (`/docs`) stays off.
-7. **Commits:** plain messages describing the change. No tool attribution lines (`Co-Authored-By`,
+   add endpoints without the same protection. The API listing (`/docs`) stays off. Slack handlers work
+   only in `ALLOWED_CHANNELS` (a Bolt middleware); keep new handlers behind it.
+7. **Escape what reaches Slack or GitHub.** Text from people or Gemini is escaped before Slack sees it
+   and @mentions are defused in GitHub text. A proposal is claimed atomically before it is approved or
+   dismissed, so it can't be filed twice.
+8. **Commits:** plain messages describing the change. No tool attribution lines (`Co-Authored-By`,
    "Generated with …").
 
 ## Commands
@@ -41,28 +45,43 @@ uv run pytest tests/test_e2e.py -k N_0    # a subset
 uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080 --reload --reload-exclude ".data/*"
 cloudflared tunnel --url http://localhost:8080        # public URL for Slack and GitHub while local
 uv run --env-file .env adk web agents                 # ADK web UI for the question agent
+uv run --env-file .env --group eval python -m evals.qa.run   # ADK eval of the question agent (real Gemini, ~10 min)
 uv run --env-file .env python -m speckeeper.backfill  # issues for requirements approved before GitHub was set up (server stopped)
 GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
+GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AGENT_ENGINE_ID=... to update)
 ```
 
 ## Code map
 
 | Path | Role |
 |---|---|
-| `src/speckeeper/main.py` | FastAPI app: `/slack/events`, `/ci`, `/health`; builds the service from settings |
-| `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages |
+| `src/speckeeper/main.py` | FastAPI app: `/` (landing page), `/slack/events`, `/ci`, `/health`; builds the service from settings |
+| `src/speckeeper/slack_app.py` | Slack Bolt handlers: mentions, card buttons, channel messages, `reset demo`; the `ALLOWED_CHANNELS` middleware |
 | `src/speckeeper/service.py` | What Spec Keeper does, independent of Slack: capture, approve, change, dismiss, CI, PRD versions |
-| `src/speckeeper/extract.py` | Capture: one schema-validated Gemini call; uncited items dropped; changes to approved requirements marked |
-| `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback |
+| `src/speckeeper/extract.py` | Capture and thread-watch prompts, response schemas and checks (`cited`, `passes_gate`); changes to approved requirements marked |
+| `src/speckeeper/agent.py` | ADK agent that answers questions (`why …?`) with tools over the store; Flash with Pro fallback. Guardrails are ADK callbacks (`guardrails()`): budget before each model call, tokens after, tool checks and audit, fallback on a rate limit |
 | `src/speckeeper/notes.py` | Meeting notes in: Drive API as the service account, or a doc's shared-link export |
 | `src/speckeeper/ci.py` | JUnit parsing, AC-key mapping, the stale rule, the Slack summary |
 | `src/speckeeper/cards.py` | Block Kit: approval, baseline, change and decided cards |
-| `src/speckeeper/integrations.py` | Google Docs PRD (append only) and GitHub issues |
+| `src/speckeeper/integrations.py` | Google Docs PRD and GitHub issues (@mentions defused) |
+| `src/speckeeper/prd.py` | The PRD as one HTML page, rebuilt from the store on every change and imported into the doc |
+| `src/speckeeper/audit.py` | Structured audit entries for Cloud Logging (`jsonPayload.audit.event`) |
+| `src/speckeeper/budget.py` | Daily Gemini token cap (`DAILY_TOKEN_BUDGET`), per instance |
+| `src/speckeeper/web.py`, `web/` | The landing page at `/`, filled in from settings, and its images |
+| `src/speckeeper/backfill.py` | Issues for requirements approved before GitHub was set up |
 | `src/speckeeper/store.py` | `MemoryStore` (tests), `FileStore` (local), `FirestoreStore` (Cloud Run) |
 | `src/speckeeper/models.py` | Source, AcceptanceCriterion, Requirement, Proposal |
 | `src/speckeeper/config.py` | Settings from the environment |
+| `src/speckeeper/pipelines.py` | Capture and thread watch as ADK multi-agent pipelines: `SequentialAgent`[Flash `triage_agent` → `triage_gate`] and [Pro `capture_agent` → `citation_check`], with the guardrail callbacks and the analytics plugins. The only way capture and thread watch run since Oct 16, 2026 |
+| `src/speckeeper/remote.py` | `RemoteAsker`: the "why?" agent on Vertex AI Agent Engine (`AGENT_ENGINE`), called through `:streamQuery`; the local agent answers if it fails |
+| `src/speckeeper/memory.py` | Memory Bank (`VertexAiMemoryBankService`): "looked at REQ-7 version 1 on <date>" per person; flags `changed_since_you_last_asked` in the after-tool callback |
+| `agents/speckeeper_engine/` | The agent as deployed to Agent Engine by `deploy_agent.sh` (Firestore, Gemini on the global endpoint, Memory Bank) |
+| `src/speckeeper/analytics.py` | ADK's BigQuery agent analytics plugin when `ANALYTICS_DATASET` is set (`deploy.sh` sets `speckeeper_analytics`); `redact()` keeps counts and names, never text. Queries in `analytics/queries.sql` |
+| `src/speckeeper/tracing.py` | Exports ADK's spans to Cloud Trace when `TRACE_TO_CLOUD=1` (set by `deploy.sh`), with message content off |
 | `agents/speckeeper_qa/` | Entry point for `adk web` |
+| `slack-manifest.yaml` | The Slack app: scopes, events, request URLs |
 | `evals/notes/` | Meeting notes fixtures |
+| `evals/qa/` | ADK eval of the question agent: `fixture.py` (a fixed project), `cases.py` (questions, expected tool calls, reference answers), `run.py` (AgentEvaluator; writes `report.json`) |
 
 ## Data model
 
@@ -90,8 +109,11 @@ GCP_PROJECT=... GITHUB_REPO=... PRD_DOC_ID=... ./deploy.sh   # Cloud Run
    changes → Approve → new requirement, or the next version of the existing one.
 3. **CI:** GitHub Actions posts JUnit to `/ci` → each test maps to an AC by the key at the start of
    its name (`AC-7-1@v1 …`) → passing, failing or stale → Slack message and issue comment.
-4. **Questions:** any mention phrased as a question → the ADK agent → tools read the store →
-   answer with sources.
+4. **Questions:** any mention phrased as a question → the ADK agent (on Agent Engine when
+   `AGENT_ENGINE` is set, else local) → tools read the store → answer with sources, starting with what
+   changed since the person last asked (Memory Bank).
+5. **Reset:** `@Spec Keeper reset demo` in a `DEMO_CHANNELS` channel clears the demo, unless someone
+   else used it in the last 10 minutes.
 
 Slack acks every request within 3 seconds; handlers do the slow work after. On Cloud Run this
 needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instance).
@@ -99,7 +121,11 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 ## Testing
 
 - `pytest`, fakes only. `tests/test_core.py` (service), `test_meeting.py` (meetings, versions,
-  changes), `test_agent.py` (ADK tools, fallback), `test_app.py` (HTTP basics), `test_e2e.py`
+  changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted
+  model, no network), `test_pipelines.py` (the capture and thread-watch pipelines), `test_watch.py`
+  (thread watch, W-), `test_memory.py` (Memory Bank), `test_remote.py` (Agent Engine and its fallback),
+  `test_security.py` (security fixes, N-12 on), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
+  `test_analytics.py`, `test_tracing.py`, `test_web.py`, `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
 - **End-to-end tests** send Slack-signed requests through the real FastAPI and Bolt app. Slack is a
   local fake HTTP server (`FakeSlack`) that answers the Web API and records every call; Bolt builds
@@ -108,6 +134,12 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   response so tests can assert on what was posted.
 - Test ids (`E2E-`, `N-`, `C-`) match the test plan in the team's build plan doc. Add a negative and
   a corner case with every feature.
+- **Fake Gemini, real pipelines:** tests give `SpecKeeper` a `FakeEngine` (`tests/fakes.py`): the tests' fake
+  generate(prompt, schema) functions answer as the model, behind the real ADK pipelines and check steps.
+- **ADK eval** (`evals/qa/`) asks the question agent 13 questions against a fixed in-memory project
+  and scores tool trajectory (IN_ORDER), answer match and hallucinations with a Gemini judge. It uses
+  real Gemini, so it is run by hand, not in CI; `tests/test_evals.py` checks without Gemini that every
+  case's expected tools return the facts its reference answer states. Change a case and the fixture together.
 - What good tests here assert: what reaches Gemini (citations, approved requirements, no extra
   text), what is written and how often (issues, PRD, versions), and what the user sees in Slack.
 
@@ -118,12 +150,32 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
 `GEMINI_PRO_MODEL`, `GEMINI_FLASH_MODEL`, `PRD_DOC_ID`, `GITHUB_TOKEN`, `GITHUB_REPO`, `CI_SECRET`,
 `SPECKEEPER_STORE` (`memory`, `file`, `firestore`), `FIRST_REQ` (7 for the demo).
 
+Optional, all read in `config.py` (or `budget.py`):
+
+- Access: `ALLOWED_CHANNELS` (names or ids; empty = every channel), `APPROVERS` (Slack user ids),
+  `DEMO_CHANNELS` (ids where `reset demo` works).
+- Limits: `REQUESTS_PER_USER`, `REQUESTS_WINDOW_SECONDS` (10 per 10 minutes), `DAILY_TOKEN_BUDGET`.
+- Thread watch: `WATCH_QUIET_SECONDS`, `WATCH_MIN_CONFIDENCE`, `WATCH_THINKING`.
+- Google Cloud: `AGENT_ENGINE` (the engine's resource name), `ANALYTICS_DATASET`, `TRACE_TO_CLOUD=1`.
+- Landing page: `DEMO_SLACK_INVITE`, `DEMO_VIDEO_URL`, `CONTACT_EMAIL`, `DEMO_CHANNEL_NAME`,
+  `DEMO_NOTES_URL`, `SOURCE_REPO`.
+
 ## Things that bit us
 
 - **Gemini models by region:** asia-southeast1 only offers old models. Use the `global` endpoint
   (`GEMINI_LOCATION`) for Gemini 3.x; Cloud Run and Firestore stay in asia-southeast1.
 - **Preview model quotas are small.** `gemini-3.1-pro-preview` returns 429 under light load; capture
   and questions retry once on the other model. Raise the quota before the demo.
+- **A new project needs three extra steps** (moved to `speckeeper-taqelah` on 16 Oct 2026 after the
+  first project's Vertex AI access was suspended). Grant the default compute service account
+  `roles/run.builder`, or `--source` builds can't read the upload. Organisations with domain-restricted
+  sharing refuse `allUsers`, so `deploy.sh` uses `--no-invoker-iam-check`. `gcloud firestore databases
+  create` failed on the fresh project, but the Firestore REST API worked.
+- **Never run adversarial prompts or evals in bulk against Vertex AI.** Repeated injection test cases
+  in automated runs were followed by an Acceptable Use Policy suspension. Run them against fakes.
+- **ADK skips `after_model_callback` when `before_model_callback` returns a response.** The fallback
+  path answers from `before_model`, so it counts its own tokens there. `temp:` state lasts one question
+  and isn't saved, which is why a question stays on the fallback but the next one starts on Flash.
 - **Google blocks the gcloud login from asking for Docs or Drive scopes.** Read and write Google docs
   as the `speckeeper` service account (impersonation locally, the service's identity on Cloud Run).
 - **Slack private channels** need `groups:history`, `groups:read` and the `message.groups` event,
@@ -134,5 +186,9 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   Run `gh` with `env -u GITHUB_TOKEN`.
 - **The server keeps its own copy of the file store**; stop it before scripts that write to
   `.data/store.json`.
+- **gcloud splits `--set-env-vars` on commas**, which broke list values (`ALLOWED_CHANNELS`,
+  `APPROVERS`). `deploy.sh` uses the `^@^` delimiter; keep it.
+- **ADK's BigQuery plugin copies session state into rows** unless `log_session_metadata` is off, and
+  that state held extracted requirements. Keep it off and log only the event types `redact()` handles.
 - **Write tests from the approved criteria, not from memory.** Gemini words the criteria; a test
   named `AC-7-1` that checks something else is a false green.

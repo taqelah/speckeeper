@@ -53,7 +53,7 @@ class Proposal(BaseModel):
     channel: str
     thread_ts: str
     message_ts: str = ""  # the card's own message, to update it after a click
-    status: Literal["pending", "approved", "dismissed"] = "pending"
+    status: Literal["pending", "deciding", "approved", "dismissed"] = "pending"  # deciding: claimed by one click
     decided_by: str = ""
     group_id: str = ""  # proposals captured together from one meeting share a group
     created_at: str = ""  # when it was captured (ISO time)

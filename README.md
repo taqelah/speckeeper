@@ -26,7 +26,7 @@ Vertex AI and the Agent Development Kit.
 | **3. Verify in CI** | (automatic) | Tests named after a criterion (`AC-7-1@v1 shows the 25 MB limit`) report from GitHub Actions; Spec Keeper posts each criterion as passing or failing, and the requirement as verified only when all pass |
 | **4. Catch a change** | `@Spec Keeper capture this` on a thread like "let's cap uploads at 10 MB" | Recognises that this changes REQ-7, shows the old and new criteria as a diff with both sources, and warns which tests are now **stale**. Approve makes REQ-7 v2 (PRD v1.1.0), never a second, contradicting requirement |
 | **5. Stale, not green** | (automatic) | The next CI run still passes the old 25 MB test, and Spec Keeper reports it as stale, not verified, until the test is updated to `@v2` |
-| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation |
+| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation. If the requirement changed since you last asked, it says so first |
 
 ## How it works
 
@@ -44,9 +44,9 @@ flowchart LR
         A[GitHub Actions<br/>JUnit results]
     end
     subgraph Spec Keeper [Spec Keeper service]
-        E[Capture<br/>Gemini, schema output,<br/>citations checked]
+        E[Capture<br/>ADK pipeline: triage,<br/>capture, citation check]
         G[Approval cards<br/>in Slack]
-        Q[ADK agent<br/>questions with tools]
+        Q[ADK agent<br/>questions with tools,<br/>on Agent Engine]
         C[CI mapping<br/>AC keys, stale rule]
         D[(Requirements,<br/>versions, sources)]
     end
@@ -74,9 +74,11 @@ flowchart LR
   click in Slack.
 - **No citation, no requirement.** Gemini must cite the messages or meeting passages each requirement
   came from, and anything citing a source that wasn't in the input is dropped before a card is shown.
-- **Schema calls for extraction, an agent for questions.** Capture is one Gemini call with a strict
-  JSON schema, where a fixed shape and the citation check matter most. Open-ended questions go to an
-  ADK agent that chooses its tools (`list_requirements`, `get_requirement`, `get_history`).
+- **Fixed pipelines for extraction, an agent for questions.** Capture and thread watch are ADK
+  `SequentialAgent` pipelines with strict JSON schemas: a Flash triage agent and a gate step, then a Pro
+  capture agent and a citation-check step, where a fixed shape and the citation check matter most.
+  Open-ended questions go to an ADK agent that chooses its tools (`list_requirements`, `get_requirement`,
+  `get_history`), running on Vertex AI Agent Engine with Memory Bank.
 - **Versions per requirement, and per criterion.** A change bumps REQ-7 to v2; each criterion keeps
   its key and takes the new version only if its text changed. Tests carry the version they were
   written for (`AC-7-1@v2`), which is what makes stale tests detectable.
@@ -96,7 +98,10 @@ This is a hackathon prototype.
 | CI verification per criterion, with stale tests | |
 | Change detection: REQ-7 v1 to v2 with a diff | |
 | Thread watch: suggests a capture when a thread it was mentioned in changes a requirement | |
-| ADK question agent with sources | |
+| ADK question agent with sources, on Agent Engine with Memory Bank | |
+| Capture and thread watch as ADK multi-agent pipelines | |
+| Analytics in BigQuery and traces in Cloud Trace | |
+| Limited to the allowed project channels | |
 | Deployed on Cloud Run with Firestore and Secret Manager | |
 
 The demo product Spec Keeper watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
@@ -114,11 +119,31 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   captured, and every requirement must cite a message that is really in the thread.
 - **Output.** Text from people or Gemini is escaped before it reaches Slack (no `<!channel>` or crafted
   links) and @mentions in GitHub text are defused.
+- **Channels.** `ALLOWED_CHANNELS` (names or ids) limits Spec Keeper to the project channels it's set up for.
+  One store serves every channel, so elsewhere a mention gets a one-line reply, and clicks and thread messages
+  do nothing.
+- **Decisions.** Each proposal is claimed atomically (a Firestore transaction) before it is approved or
+  dismissed, so a double click or two approvers can't file it twice. `reset demo` waits 10 minutes after
+  someone else last used the demo, so it can't wipe a run in progress.
+- **CI webhook.** The secret is checked before the body is read, the body is capped at 3 MB, and results
+  are posted only in channels where requirements were captured.
 - **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
   JUnit XML, parsed with `defusedxml`. Each user gets 10 Gemini requests per 10 minutes, and a daily token
-  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached.
-- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits and the budget
-  are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached. The question agent checks it before every
+  model call and counts every call's tokens, through ADK callbacks.
+- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
+  question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
+- **Agent Engine.** The "why?" agent runs on Vertex AI Agent Engine (`deploy_agent.sh`) with managed sessions,
+  called from Cloud Run (`AGENT_ENGINE`); the local agent answers if the engine fails. Its Memory Bank
+  remembers which version of each requirement a person last saw (no message text), so an answer can start
+  with what changed since they last asked.
+- **ADK pipelines.** Capture and thread watch run as ADK multi-agent pipelines: a Flash triage agent and a
+  gate step; a Pro capture agent and a citation-check step. A person's Review click sits between them.
+- **Analytics.** Each question's events (Gemini calls with tokens and latency, tool calls) stream to
+  BigQuery through ADK's analytics plugin, with a formatter that keeps counts and names and drops all text.
+  Cost and latency queries are in [analytics/queries.sql](analytics/queries.sql).
+- **Tracing.** Each question to the agent is a Cloud Trace trace (Gemini calls with tokens, tool calls,
+  timings). Message text is kept out of spans (`ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`).
 - **Supply chain.** CI runs the tests and `pip-audit`; Dependabot watches dependencies and actions; actions
   are pinned to commit hashes.
 
@@ -141,17 +166,19 @@ uv run --env-file .env uvicorn --factory speckeeper.main:app --port 8080
 cloudflared tunnel --url http://localhost:8080    # a public URL for Slack and GitHub while running locally
 ```
 
-**Slack app:** bot scopes `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`,
+**Slack app:** create it from [slack-manifest.yaml](slack-manifest.yaml), or by hand with bot scopes `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`,
 `groups:history`, `groups:read`, `users:read`; bot events `app_mention`, `message.channels`,
 `message.groups`; Event Subscriptions and Interactivity request URL `<public URL>/slack/events`.
-Invite the bot to the project channel.
+Invite the bot to the project channel, and set `ALLOWED_CHANNELS` to it (and `APPROVERS` to limit who
+can approve).
 
 **CI in the product repo:** start each test name with the criterion key and version
 (`AC-7-1@v1 …`) and post the JUnit XML to `<public URL>/ci` with the header
 `X-SpecKeeper-Secret` (see checkout-app's workflow).
 
 **Deploy:** `GCP_PROJECT=... GITHUB_REPO=org/repo PRD_DOC_ID=... ./deploy.sh` (Cloud Run,
-asia-southeast1, secrets from Secret Manager).
+asia-southeast1, secrets from Secret Manager). To answer questions on Agent Engine, run
+`GCP_PROJECT=... ./deploy_agent.sh` once, then set `AGENT_ENGINE` to the name it prints and deploy again.
 
 ## Test
 
@@ -159,10 +186,45 @@ asia-southeast1, secrets from Secret Manager).
 uv run pytest
 ```
 
-55 tests, about a second, no network. Thirty of them run the whole app end to end: Slack-signed
+190 tests, about three seconds, no network. 49 of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
 broken CI XML, uncited output, rate limits) and corner cases.
+
+## Evaluate the question agent
+
+```sh
+uv run --env-file .env --group eval python -m evals.qa.run
+```
+
+An ADK eval (`AgentEvaluator`) of the "why?" agent: 13 questions about a fixed project (the Checkout v2
+kickoff, then the upload limit changed from 25 MB to 8 MB in Slack), each with the tool calls it needs
+and a reference answer. A Gemini judge scores every answer. Latest results, 13 questions × 3 runs
+([evals/qa/report.json](evals/qa/report.json)):
+
+| Metric | What it checks | Passed | Average |
+|---|---|---|---|
+| Tool trajectory (in order) | Called the right tools | 39 / 39 | 1.00 |
+| Final response match v2 | Answer agrees with the reference | 39 / 39 | 1.00 |
+| Hallucinations v1 | Every claim backed by a tool result | 39 / 39 | 0.995 |
+
+It uses real Gemini, so it is run by hand, not in CI, and rarely: never in bulk, and never with
+adversarial cases (see the limits in the results file below). `tests/test_evals.py` checks, without
+Gemini, that every case can be answered from the fixture.
+
+**Capture and thread watch,** from the runs made during development
+([evals/development-results.md](evals/development-results.md)), on small hand-written cases:
+
+| | Result |
+|---|---|
+| Capture precision (meeting notes → requirements) | 0.95 (20 / 21) |
+| Capture recall | 1.00 (20 / 20); open questions captured: 0 / 8 |
+| Thread watch: changes and new requirements caught | 10 / 10 |
+| Thread watch: false alarms | 0 / 16 |
+| Prompt-injection messages blocked | 3 / 3 |
+
+**Cost:** a meeting capture costs about $0.05 in Gemini, a "why?" answer $0.006, a thread-watch check
+$0.001, and one full demo about $0.09 ([evals/cost.md](evals/cost.md), from the token counts in Cloud Logging).
 
 ## For contributors
 

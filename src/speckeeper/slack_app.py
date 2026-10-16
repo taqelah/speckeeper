@@ -14,6 +14,7 @@ from collections import deque
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from slack_bolt import BoltResponse
 from slack_bolt.async_app import AsyncApp
 
 from .audit import audit
@@ -47,6 +48,7 @@ TZ = "Asia/Singapore"  # how message times are written in citations
 
 # How people ask for a capture, and how questions start. A mention with a notes link always reads the notes.
 CAPTURE_WORDS = {"capture", "analyse", "analyze", "review", "check", "read", "sync", "update", "process", "summarise", "summarize"}
+RESET_GRACE_SECONDS = 600  # a reset waits this long after someone else last used the demo
 QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "how", "where", "are", "does", "can"}
 
 
@@ -77,17 +79,60 @@ def build_slack_app(
     per_user: int = 10,
     per_seconds: float = 600,
     demo_channels: tuple[str, ...] = (),
+    allowed_channels: tuple[str, ...] = (),
 ) -> AsyncApp:
     """`client` and `wait` are for end-to-end tests: a recording Slack client, and handlers that finish
     before the HTTP response so the test can check what was posted (thread watch then checks at once).
     `quiet` is how long a watched thread must be still before thread watch looks at it. `approvers`: Slack
     user ids allowed to approve or dismiss (empty: anyone in the channel). `per_user` requests that call
-    Gemini are allowed per user in `per_seconds`."""
+    Gemini are allowed per user in `per_seconds`. `allowed_channels`: channel names or ids Spec Keeper
+    works in (empty: any channel it's in); everything from other channels is turned away."""
     app = AsyncApp(token=token, signing_secret=signing_secret, client=client, process_before_response=wait)
     names: dict[str, str] = {}  # Slack user id -> display name, kept across calls
     pending: dict[str, asyncio.Task] = {}  # thread -> its waiting thread-watch check
     seen: dict[str, list[str]] = {}  # thread -> messages marked 👀 that its next check covers
     recent: dict[str, deque] = {}  # user -> times of their recent Gemini requests
+    channel_names: dict[str, tuple[str, float]] = {}  # channel id -> (name, when looked up)
+
+    async def channel_ok(client, channel: str) -> bool:
+        """Is this one of the channels Spec Keeper works in? Names are looked up once and kept 10 minutes."""
+        if not allowed_channels or not channel or channel in allowed_channels:
+            return True
+        hit = channel_names.get(channel)
+        if hit is None or time.monotonic() - hit[1] > 600:
+            try:
+                info = await client.conversations_info(channel=channel)
+                hit = (info["channel"].get("name", ""), time.monotonic())
+            except Exception:  # unknown or inaccessible channel: not allowed
+                hit = ("", time.monotonic())
+            channel_names[channel] = hit
+        return hit[0] in allowed_channels
+
+    @app.middleware
+    async def only_allowed_channels(body, client, ack, next):
+        # One store serves every channel, so Spec Keeper answers, captures and approves only in the
+        # channels it's set up for; anywhere else it would read or change another channel's requirements.
+        event = body.get("event") or {}
+        channel = event.get("channel") or (body.get("channel") or {}).get("id", "")
+        if await channel_ok(client, channel):
+            await next()
+            return
+        if body.get("type") == "block_actions":
+            await ack()
+            audit("channel_refused", "WARNING", channel=channel, kind="click", user=(body.get("user") or {}).get("id", ""))
+        if event.get("type") == "app_mention":  # plain messages elsewhere are ignored without a trace
+            audit("channel_refused", "WARNING", channel=channel, kind="mention", user=event.get("user", ""))
+            where = ", ".join(f"#{c}" if not c[:1].isupper() else f"<#{c}>" for c in allowed_channels)
+            await client.chat_postMessage(channel=channel, thread_ts=event.get("thread_ts") or event.get("ts"), text=f"I'm only set up to work in {where}.")
+        return BoltResponse(status=200, body="")  # handled here: a 404 would make Slack retry
+
+    last_use: dict[str, tuple[str, float]] = {}  # channel -> (user, time) of the last mention or click
+
+    def used(channel: str, user: str) -> tuple[str, float] | None:
+        """Records who just used Spec Keeper in a channel; returns who did before."""
+        before = last_use.get(channel)
+        last_use[channel] = (user, time.monotonic())
+        return before
 
     def over_limit(user: str) -> int:
         """Seconds until this user may ask again (0: go ahead). Captures and questions cost Gemini quota."""
@@ -114,6 +159,7 @@ def build_slack_app(
     async def may_decide(client, body) -> bool:
         """Approve and Dismiss change the PRD: only the approvers may click them, when a list is set."""
         user = body["user"]["id"]
+        used(body.get("channel", {}).get("id", ""), user)  # a click counts as using the demo (see reset demo)
         if not approvers or user in approvers:
             return True
         audit("decision_refused", "WARNING", user=user, action=body["actions"][0]["action_id"], channel=body["channel"]["id"])
@@ -147,10 +193,21 @@ def build_slack_app(
         thread_ts = event.get("thread_ts") or event["ts"]
         doc_id = doc_id_in(event.get("text", ""))  # from the raw text: doc ids are case-sensitive
         first = text.split(" ", 1)[0].strip(",.:!") if text else ""
+        before = used(channel, event.get("user", ""))
         if text.startswith("reset demo"):
             user = event.get("user", "")
             if channel not in demo_channels:
                 await say(text="Reset only works in the demo channel.", thread_ts=thread_ts)
+                return
+            # Anyone may start clean, but not in the middle of someone else's run.
+            if before and before[0] != user and time.monotonic() - before[1] < RESET_GRACE_SECONDS:
+                wait_min = int((RESET_GRACE_SECONDS - (time.monotonic() - before[1])) // 60) + 1
+                audit("demo_reset_refused", "WARNING", user=user, channel=channel)
+                last_use[channel] = before  # a refused reset doesn't take the demo over from the person running it
+                await say(
+                    text=f"Someone else is using the demo right now. To avoid wiping their run, try `reset demo` again in about {wait_min} min.",
+                    thread_ts=thread_ts,
+                )
                 return
             if await busy(client, channel, thread_ts, user):
                 return
@@ -198,10 +255,7 @@ def build_slack_app(
     async def answer(client, channel: str, thread_ts: str, question: str, user: str) -> None:
         working = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="_Looking it up…_")
         try:
-            from .budget import spend_check
-
-            spend_check()
-            reply = await svc.asker.ask(question, user)
+            reply = await svc.asker.ask(question, user)  # the agent checks the budget before every model call
         except Exception as e:
             log.exception("question failed")
             reply = failed(e, "look that up")
@@ -244,15 +298,15 @@ def build_slack_app(
         if not proposals:
             note = "I didn't find an agreed requirement with a source in this thread."
             if questions:
-                note += "\nOpen questions:\n" + "\n".join(f"• {q}" for q in questions)
+                note += "\nOpen questions:\n" + "\n".join(f"• {_esc(q)}" for q in questions)  # Gemini text: no pings or links
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
         for i, p in enumerate(proposals):
-            blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
+            card = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else {"blocks": approval_card(p)}
             if i == 0:
-                res = await client.chat_update(channel=channel, ts=working["ts"], text="Captured a requirement", blocks=blocks)
+                res = await client.chat_update(channel=channel, ts=working["ts"], text="Captured a requirement", **card)
             else:
-                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Captured a requirement", blocks=blocks)
+                res = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="Captured a requirement", **card)
             svc.set_card(p.id, res["ts"])
 
     async def capture_meeting(client, channel: str, thread_ts: str, doc_id: str) -> None:
@@ -314,12 +368,12 @@ def build_slack_app(
                 channel=channel, ts=working["ts"], text=f":pencil2: The notes were edited since {since}: " + ", ".join(parts) + ". Cards below."
             )
             for p in result.proposals:
-                blocks = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else approval_card(p)
+                card = change_card(p, svc.store.get_requirement(p.target)) if p.kind == "change" else {"blocks": approval_card(p)}
                 res = await client.chat_postMessage(
                     channel=channel,
                     thread_ts=thread_ts,
                     text="Change from the meeting notes" if p.kind == "change" else "New requirement from the meeting notes",
-                    blocks=blocks,
+                    **card,
                 )
                 svc.set_card(p.id, res["ts"])
             return
@@ -338,7 +392,11 @@ def build_slack_app(
 
     async def stale(client, body) -> None:
         await client.chat_update(
-            channel=body["channel"]["id"], ts=body["message"]["ts"], text=STALE, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}]
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text=STALE,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": STALE}}],
+            attachments=[],
         )
 
     def prd_link(text: str = "the PRD") -> str:
@@ -354,11 +412,28 @@ def build_slack_app(
         text = f"{count} issue" + ("s" if count != 1 else "")
         return f"<https://github.com/{repo}/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|{text}>" if repo else text
 
+    def without_buttons(message: dict, line: str) -> dict:
+        """The card as it is, its buttons swapped for a line of text where they were (in the blocks, or in
+        the last attachment of a change card). chat.update arguments; attachments are always sent, since
+        Slack keeps the old ones, buttons and all, when they are left out."""
+        line_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": line}]}
+        blocks = [blk for blk in message.get("blocks", []) if blk["type"] != "actions"]
+        attachments, placed = [], False
+        for att in message.get("attachments", []):
+            kept = [blk for blk in att.get("blocks", []) if blk["type"] != "actions"]
+            if len(kept) < len(att.get("blocks", [])):
+                kept.append(line_block)
+                placed = True
+            color = att.get("color", "")
+            attachments.append({"fallback": att.get("fallback", ""), "blocks": kept, **({"color": "#" + color.lstrip("#")} if color else {})})
+        if not placed:
+            blocks.append(line_block)
+        return {"blocks": blocks, "attachments": attachments}
+
     async def working(client, body, text: str) -> None:
         """Swap a card's buttons for a progress line at once, so a second click can't land while issues are written."""
-        kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
-        kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f":hourglass_flowing_sand: {text}"}]})
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text, blocks=kept)
+        card = without_buttons(body["message"], f":hourglass_flowing_sand: {text}")
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=text, **card)
 
     def _group_title(body) -> str:
         first = body["message"]["blocks"][0]["text"]["text"]
@@ -443,9 +518,8 @@ def build_slack_app(
             if outdated:
                 note += f" Stale until tests are updated to @v{r.version}: {', '.join(outdated)}."
             # Keep the diff on the card; swap the buttons for what happened.
-            kept = [blk for blk in body["message"]["blocks"] if blk["type"] != "actions"]
-            kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
-            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=kept)
+            card = without_buttons(body["message"], note)
+            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **card)
             return
         note = (
             f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}."
@@ -465,7 +539,7 @@ def build_slack_app(
             return
         audit("dismissed", user=user, proposal=pid, target=p.target)
         note = f"Dismissed by <@{user}>. Nothing was written."
-        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note), attachments=[])
 
     @app.action(EDIT)
     async def on_edit(ack, body, client):

@@ -7,10 +7,10 @@ import json
 import time
 
 import pytest
+from fakes import FakeEngine
 from fastapi.testclient import TestClient
 from test_e2e import CHANGE, KICKOFF, App, Asker, Gemini, kickoff_approved, settings
 
-from speckeeper.extract import triage
 from speckeeper.main import create_app
 from speckeeper.models import Requirement, Source
 
@@ -42,7 +42,7 @@ def watched_app(*triage_replies, gemini=None) -> tuple[App, Triage]:
     app = App(gemini or Gemini(KICKOFF, CHANGE), thread=[{"ts": ROOT, "user": "UMAYA", "text": "kickoff notes"}])
     kickoff_approved(app)  # REQ-7 (25 MB) approved; the mention made this thread a watched one
     t = Triage(*triage_replies)
-    app.svc.triage_generate = t
+    app.svc.engine.triage_generate = t
     return app, t
 
 
@@ -137,7 +137,7 @@ def test_W_08_review_runs_the_normal_capture_and_writes_nothing_before_approval(
     assert "is reviewing this" in reviewing["text"] and "review_suggestion" not in json.dumps(reviewing["blocks"])
     assert "Change to REQ-7" in json.dumps(change["blocks"]) and "10 MB" in json.dumps(change["blocks"])
     assert app.svc.store.get_requirement("REQ-7").version == 1 and app.issues.updated == []
-    review_prompt = app.svc.generate.prompts[-1].split("Discussion (ts | who | text):")[1]
+    review_prompt = app.svc.engine.generate.prompts[-1].split("Discussion (ts | who | text):")[1]
     assert "200.1" in review_prompt and "kickoff notes" not in review_prompt  # only what the suggestion rests on
 
 
@@ -175,7 +175,7 @@ def test_triage_ignores_a_change_to_a_requirement_that_does_not_exist():
     def gen(p, s):
         return {"verdict": "change", "target": "REQ-99", "confidence": 0.99, "summary": "x", "source_ts": ["2.0"]}
 
-    assert triage([], new, gen, approved, 0.8) is None
+    assert FakeEngine(None, gen).triage([], new, approved, 0.8) is None
 
 
 def reactions(app: App, method: str) -> list[str]:

@@ -9,14 +9,13 @@ import time
 import xml.etree.ElementTree as ET
 
 from defusedxml import DefusedXmlException
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
 from .audit import audit
 from .config import Settings
-from .extract import Generate, gemini_generate
 from .service import SpecKeeper
 from .slack_app import build_slack_app
 from .store import FileStore, FirestoreStore, MemoryStore
@@ -26,6 +25,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 MAX_JUNIT_BYTES = 2_000_000
+MAX_CI_BODY = 3_000_000  # the JUnit XML plus its JSON envelope
 
 
 class CiRun(BaseModel):
@@ -34,7 +34,7 @@ class CiRun(BaseModel):
     junit_xml: str
 
 
-def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
+def build_service(s: Settings) -> SpecKeeper:
     if s.store == "firestore":
         store = FirestoreStore(s.gcp_project, s.first_req)
     elif s.store == "file":
@@ -51,15 +51,34 @@ def build_service(s: Settings, generate: Generate | None = None) -> SpecKeeper:
 
         issues = GitHubIssues(s.github_token, s.github_repo)
     from .agent import Asker, use_vertex
+    from .analytics import analytics_plugins
+    from .pipelines import AdkEngine
+    from .tracing import setup_tracing
 
     use_vertex(s.gcp_project, s.gemini_location)
+    setup_tracing(s.trace_to_cloud, s.gcp_project)
+
+    def plugins() -> list:  # a fresh set per runner: the "why?" agent, capture and thread watch
+        return analytics_plugins(s.gcp_project, s.analytics_dataset, s.gcp_location)
+
+    if s.agent_engine:  # the agent on Vertex AI Agent Engine; the local one answers if it fails, with the same Memory Bank
+        from google.adk.memory import VertexAiMemoryBankService
+
+        from .memory import LookMemory
+        from .remote import RemoteAsker
+
+        region = s.agent_engine.split("/locations/")[1].split("/")[0]
+        bank = VertexAiMemoryBankService(project=s.gcp_project, location=region, agent_engine_id=s.agent_engine.rsplit("/", 1)[-1])
+        local = Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins(), memory=LookMemory(bank))
+        asker = RemoteAsker(s.agent_engine, fallback=local)
+    else:
+        asker = Asker(store, s.flash_model, fallback=s.pro_model, plugins=plugins())
     return SpecKeeper(
         store,
-        generate or gemini_generate(s.gcp_project, s.gemini_location, s.pro_model, fallback=s.flash_model),
+        AdkEngine(s.pro_model, s.flash_model, s.watch_thinking, plugins=plugins),
         prd,
         issues,
-        Asker(store, s.flash_model, fallback=s.pro_model),
-        triage_generate=generate or gemini_generate(s.gcp_project, s.gemini_location, s.flash_model, fallback=s.pro_model, thinking=s.watch_thinking),
+        asker,
         min_confidence=s.watch_min_confidence,
     )
 
@@ -97,6 +116,7 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         per_user=s.requests_per_user,
         per_seconds=s.requests_window_seconds,
         demo_channels=s.demo_channels,
+        allowed_channels=s.allowed_channels,
     )
     handler = AsyncSlackRequestHandler(slack)
     api = FastAPI(title="Spec Keeper", docs_url=None, redoc_url=None, openapi_url=None)  # no public API listing
@@ -106,7 +126,8 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
     @api.get("/", response_class=HTMLResponse)
     async def home():
         # The status line reads the store, so the page is rebuilt at most every 30 seconds.
-        if time.monotonic() - cached["at"] > 30:
+        # Build it on the first request too: on a just-started instance the monotonic clock can read under 30 s.
+        if not cached["page"] or time.monotonic() - cached["at"] > 30:
             cached.update(at=time.monotonic(), page=landing(s, await asyncio.to_thread(status_strip, svc)))
         return HTMLResponse(
             cached["page"],
@@ -138,19 +159,37 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         return res
 
     @api.post("/ci")
-    async def ci_webhook(run: CiRun, x_speckeeper_secret: str = Header(default="")):
-        if not s.ci_secret or not hmac.compare_digest(x_speckeeper_secret, s.ci_secret):
-            audit("ci_secret_refused", "WARNING", run=run.run_id[:80])
+    async def ci_webhook(req: Request):
+        # The secret is checked before the body is read, so an unauthenticated caller can't make us parse
+        # megabytes; bytes are compared, so an odd header is a 401, not a 500.
+        given = req.headers.get("x-speckeeper-secret", "").encode("latin-1")
+        if not s.ci_secret or not hmac.compare_digest(given, s.ci_secret.encode()):
+            audit("ci_secret_refused", "WARNING")
             raise HTTPException(status_code=401, detail="bad secret")
-        if len(run.junit_xml) > MAX_JUNIT_BYTES:
+        if int(req.headers.get("content-length") or 0) > MAX_CI_BODY:
+            raise HTTPException(status_code=413, detail="body is over the limit")
+        body = b""
+        async for chunk in req.stream():
+            body += chunk
+            if len(body) > MAX_CI_BODY:
+                raise HTTPException(status_code=413, detail="body is over the limit")
+        try:
+            run = CiRun.model_validate_json(body)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="expected JSON with run_id, channel and junit_xml") from None
+        if len(run.junit_xml.encode()) > MAX_JUNIT_BYTES:
             raise HTTPException(status_code=413, detail="junit_xml is over 2 MB")
         try:
             changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
         except (ET.ParseError, DefusedXmlException):
             raise HTTPException(status_code=400, detail="junit_xml is not valid XML") from None
-        for _req, text in changed:
+        allowed = await asyncio.to_thread(svc.requirement_channels)
+        posted = run.channel in allowed
+        if not posted and changed:
+            audit("ci_channel_refused", "WARNING", channel=run.channel[:20])  # results are saved; only the Slack post is skipped
+        for _req, text in changed if posted else []:
             await slack.client.chat_postMessage(channel=run.channel, text=text)
-        return {"requirements": [r.key for r, _ in changed], "unmapped": unmapped}
+        return {"requirements": [r.key for r, _ in changed], "unmapped": unmapped, "posted": posted}
 
     return api
 

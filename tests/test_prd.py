@@ -1,3 +1,4 @@
+from fakes import FakeEngine
 from test_meeting import DOC, FakeIssues, FakePRD, fetch, generate
 
 from speckeeper.models import AcceptanceCriterion, Requirement, Source
@@ -81,7 +82,7 @@ class BrokenPRD(FakePRD):
 
 
 def test_a_prd_failure_does_not_undo_the_approval():
-    svc = SpecKeeper(MemoryStore(first_req=7), generate, BrokenPRD(), FakeIssues())
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), BrokenPRD(), FakeIssues())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     done, version = svc.approve_group(gid, "U1", "maya")
     assert version == "1.0.0" and [p.requirement.key for p in done] == ["REQ-7", "REQ-8"]
@@ -90,7 +91,7 @@ def test_a_prd_failure_does_not_undo_the_approval():
 
 def test_a_ci_run_rebuilds_the_prd_with_the_results():
     prd = FakePRD()
-    svc = SpecKeeper(MemoryStore(first_req=7), generate, prd, FakeIssues())
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), prd, FakeIssues())
     gid, *_ = svc.capture_meeting("C1", "1.1", DOC, fetch)
     svc.approve_group(gid, "U1", "maya")
     before = len(prd.pages)

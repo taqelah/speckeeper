@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fakes import FakeEngine
+
 from speckeeper.cards import APPROVE, approval_card
 from speckeeper.ci import parse_junit
 from speckeeper.extract import PROMPT
@@ -62,7 +64,7 @@ def make():
         return EXTRACTION
 
     prd, issues = FakePRD(), FakeIssues()
-    return SpecKeeper(MemoryStore(), generate, prd, issues), prompts, prd, issues
+    return SpecKeeper(MemoryStore(), FakeEngine(generate), prd, issues), prompts, prd, issues
 
 
 def test_capture_keeps_only_cited_requirements():
@@ -148,9 +150,9 @@ def test_file_store_survives_a_restart(tmp_path):
     from speckeeper.store import FileStore
 
     path = tmp_path / "store.json"
-    svc = SpecKeeper(FileStore(str(path), first_req=7), lambda p, s: EXTRACTION)
+    svc = SpecKeeper(FileStore(str(path), first_req=7), FakeEngine(lambda p, s: EXTRACTION))
     (p,), _ = svc.capture("C1", "1.1", THREAD)
     svc.approve(p.id, "UMAYA")
-    again = SpecKeeper(FileStore(str(path)), lambda p, s: EXTRACTION)  # a new process reads the file
+    again = SpecKeeper(FileStore(str(path)), FakeEngine(lambda p, s: EXTRACTION))  # a new process reads the file
     assert again.store.get_requirement("REQ-7").title == "File upload size limit is 25 MB"
     assert again.prd_version == "1.0.0" and again.store.next_req_number() == 8

@@ -14,6 +14,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from fakes import FakeEngine
 from fastapi.testclient import TestClient
 from slack_sdk.web.async_client import AsyncWebClient
 from test_meeting import DOC, NOTES, FakeIssues, FakePRD
@@ -82,6 +83,8 @@ class FakeSlack:
         elif method == "users.info":
             name = {"UMAYA": "Maya Lim", "UWEI": "Wei Tan"}.get(args.get("user"), "Someone")
             body.update(user={"id": args.get("user"), "real_name": name, "profile": {}})
+        elif method == "conversations.info":
+            body.update(channel={"id": args.get("channel"), "name": {"C1": "proj-checkout", "C2": "random"}.get(args.get("channel"), "")})
         elif method == "chat.getPermalink":
             body.update(permalink=f"https://slack.test/p{args.get('message_ts')}")
         return body
@@ -183,7 +186,7 @@ class App:
     def __init__(self, gemini=None, asker=None, fetch=fetch_ok, thread=None):
         self.prd, self.issues = FakePRD(), FakeIssues()
         self.issues_created = self.issues.created
-        self.svc = SpecKeeper(MemoryStore(first_req=7), gemini or Gemini(KICKOFF), self.prd, self.issues, asker)
+        self.svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(gemini or Gemini(KICKOFF)), self.prd, self.issues, asker)
         self.slack = FakeSlack(thread)
         self.http = TestClient(create_app(settings(), self.svc, slack_client=self.slack.client(), fetch_doc=fetch, wait=True))
         self._event = 0
@@ -225,10 +228,10 @@ class App:
 
     def last_card(self) -> dict:
         update = self.slack.posted("chat.update")[-1]
-        return {"ts": update["ts"], "blocks": update.get("blocks", [])}
+        return {"ts": update["ts"], "blocks": update.get("blocks", []), "attachments": update.get("attachments", [])}
 
     def button(self, card: dict, action_id: str) -> str:
-        for b in card["blocks"]:
+        for b in card["blocks"] + [b for a in card.get("attachments", []) for b in a.get("blocks", [])]:
             for e in b.get("elements", []):
                 if e.get("action_id") == action_id:
                     return e["value"]
@@ -315,7 +318,7 @@ def test_E2E_07_a_thread_that_changes_REQ_7_becomes_v2_not_a_new_requirement():
     kickoff_approved(app)
     app.mention("capture this", ts="200.3", thread_ts="200.1")
     card = app.last_card()
-    text = json.dumps(card["blocks"])
+    text = json.dumps(card)
     assert "Change to REQ-7" in text and "- AC-7-1" in text and "+ AC-7-1" in text
     assert "<@UWEI>" in text and "https://slack.test/p200.1" in text  # cited as a mention (Slack shows the name) with a link
     app.click("approve_proposal", app.button(card, "approve_proposal"), card)
@@ -330,7 +333,7 @@ def test_E2E_08_green_ci_verifies_a_requirement_in_slack_and_on_its_issue():
     app = App()
     kickoff_approved(app)
     res = app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True), ("renders the page", True)))
-    assert res.json() == {"requirements": ["REQ-7"], "unmapped": ["renders the page"]}
+    assert res.json() == {"requirements": ["REQ-7"], "unmapped": ["renders the page"], "posted": True}
     assert "REQ-7 is verified" in app.slack.posted("chat.postMessage")[-1]["text"]
     assert app.issues.comments[-1][0] == 1
 
@@ -342,7 +345,7 @@ def test_E2E_09_after_a_change_the_old_passing_test_is_stale_not_verified():
     app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
     app.mention("capture this", ts="200.3", thread_ts="200.1")
     card = app.last_card()
-    assert "Stale test" in json.dumps(card["blocks"])
+    assert "Stale test" in json.dumps(card)
     app.click("approve_proposal", app.button(card, "approve_proposal"), card)
     app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
     last = app.slack.posted("chat.postMessage")[-1]["text"]
@@ -699,3 +702,70 @@ def test_C_23_reset_only_works_in_the_demo_channel():
     app.mention("reset demo", ts="300.1")
     assert "only works in the demo channel" in app.slack.posted("chat.postMessage")[-1]["text"]
     assert len(app.svc.store.requirements()) == 2
+
+
+# --- the change card's diff ----------------------------------------------------------------------
+
+
+def _change_card(change: dict = CHANGE) -> tuple[App, dict]:
+    app = App(Gemini(KICKOFF, change), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    return app, app.last_card()
+
+
+def _lines(attachment: dict) -> list[list[dict]]:
+    return [b["elements"][0]["elements"] for b in attachment["blocks"] if b["type"] == "rich_text"]
+
+
+def test_C_24_a_change_card_shows_old_criteria_in_red_and_new_in_green_with_the_changed_words_marked():
+    _, card = _change_card()
+    red, green, footer = card["attachments"]
+    assert (red["color"], green["color"]) == ("#cf222e", "#1a7f37")
+    (old,), (new,) = _lines(red), _lines(green)
+    assert old[0] == {"type": "text", "text": "- AC-7-1", "style": {"code": True}}
+    assert new[0] == {"type": "text", "text": "+ AC-7-1", "style": {"code": True}}
+    assert [r["text"] for r in old if r.get("style") == {"strike": True}] == ["30", "25"]
+    assert [r["text"] for r in new if r.get("style") == {"bold": True}] == ["12", "10"]
+    assert "".join(r["text"] for r in new[2:]) == "Given a 12 MB file When uploaded Then show 'File exceeds 10 MB'"
+    assert footer["blocks"][-1]["type"] == "actions" and "color" not in footer  # buttons last, under the diff
+
+
+def test_C_25_a_criterion_only_added_shows_in_green_alone_and_unchanged_ones_not_at_all():
+    two = json.loads(json.dumps(CHANGE))
+    two["requirements"][0]["acceptance_criteria"] = [
+        {"given": "a 30 MB file", "when": "uploaded", "then": "show 'File exceeds 25 MB'"},  # as approved
+        {"given": "a 9 MB file", "when": "uploaded", "then": "it is accepted"},
+    ]
+    _, card = _change_card(two)
+    green, _footer = card["attachments"]  # nothing removed: no red block
+    assert green["color"] == "#1a7f37"
+    (line,) = _lines(green)
+    assert line[0]["text"] == "+ AC-7-2" and all(r.get("style") in ({"bold": True}, None) for r in line[1:])
+
+
+def test_C_26_approving_a_change_keeps_the_coloured_diff_and_swaps_the_buttons_for_the_outcome():
+    app, card = _change_card()
+    message = {"ts": card["ts"], "blocks": card["blocks"], "attachments": [{**a, "color": a.get("color", "").lstrip("#")} for a in card["attachments"]]}
+    app.click("approve_proposal", app.button(card, "approve_proposal"), message)  # Slack sends colours without '#'
+    final = app.slack.posted("chat.update")[-1]
+    red, green, footer = final["attachments"]
+    assert (red["color"], green["color"]) == ("#cf222e", "#1a7f37") and _lines(red) and _lines(green)
+    assert "approve_proposal" not in json.dumps(final) and "REQ-7 is now v2" in json.dumps(footer)
+
+
+def test_N_31_dismissing_a_change_clears_the_diff_and_its_buttons():
+    app, card = _change_card()
+    app.click("dismiss_proposal", app.button(card, "dismiss_proposal"), card)
+    final = app.slack.posted("chat.update")[-1]
+    assert final["attachments"] == [] and "Nothing was written" in final["text"]  # Slack keeps attachments unless told
+
+
+def test_N_32_criterion_text_in_the_diff_is_literal_so_it_cannot_ping_or_link():
+    evil = json.loads(json.dumps(CHANGE))
+    evil["requirements"][0]["acceptance_criteria"][0]["then"] = "show <!channel> and <https://evil.test|10 MB>"
+    _, card = _change_card(evil)
+    red, green, _ = card["attachments"]
+    assert {b["type"] for b in red["blocks"] + green["blocks"]} == {"rich_text"}  # no mrkdwn to parse
+    texts = [r for line in _lines(green) for r in line]
+    assert all(r["type"] == "text" for r in texts) and "<!channel>" in "".join(r["text"] for r in texts)

@@ -18,7 +18,7 @@ from typing import Literal, Protocol
 
 from . import ci
 from .audit import audit
-from .extract import Generate, Suggestion, extract, triage
+from .extract import Suggestion
 from .models import Proposal, Requirement, Source
 from .notes import FetchDoc, passages
 from .store import Store
@@ -105,24 +105,22 @@ class SpecKeeper:
     def __init__(
         self,
         store: Store,
-        generate: Generate,
+        engine,
         prd: PRD | None = None,
         issues: Issues | None = None,
         asker=None,
-        triage_generate: Generate | None = None,
         min_confidence: float = 0.8,
     ) -> None:
         self.store = store
-        self.generate = generate
-        self.triage_generate = triage_generate or generate  # Flash in production: triage runs far more often than capture
         self.min_confidence = min_confidence
         self.prd = prd
         self.issues = issues
         self.asker = asker  # the ADK agent that answers questions (agent.Asker)
+        self.engine = engine  # pipelines.AdkEngine: capture and thread watch as ADK multi-agent pipelines
 
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
-        reqs, questions = extract(messages, self.generate, approved)
+        reqs, questions = self.engine.capture(messages, approved)
         proposals = []
         now = _now()
         for seq, (req, changes) in enumerate(reqs):
@@ -182,7 +180,7 @@ class SpecKeeper:
         state["checked"] = new[-1].ts  # claim them first: a retry or a second instance won't triage them again
         self._save_watch(channel, thread_ts, state)
         approved = [r for r in self.store.requirements() if r.status == "approved"]
-        found = triage(earlier, new, self.triage_generate, approved, self.min_confidence)
+        found = self.engine.triage(earlier, new, approved, self.min_confidence)
         if found is None:
             return None
         # The same change means the same requirement and the same numbers: 10 → 5 MB once, but 10 → 8 MB is new.
@@ -339,11 +337,25 @@ class SpecKeeper:
         return p, self._release(what, user_name or user, p.group_id)
 
     def _approve(self, pid: str, user: str) -> Proposal | None:
+        if not self.store.claim_proposal(pid):
+            return None  # already decided, or being decided: a double click must not file twice
         p = self.store.get_proposal(pid)
-        if p is None or p.status != "pending":
-            return None  # already decided: a double click must not file twice
-        if p.kind == "change":
-            return self._approve_change(p, user)
+        try:
+            done = self._approve_change(p, user) if p.kind == "change" else self._approve_new(p, user)
+        except Exception:
+            self._unclaim(pid)
+            raise
+        if done is None:
+            self._unclaim(pid)
+        return done
+
+    def _unclaim(self, pid: str) -> None:
+        p = self.store.get_proposal(pid)
+        if p and p.status == "deciding":
+            p.status = "pending"
+            self.store.save_proposal(p)
+
+    def _approve_new(self, p: Proposal, user: str) -> Proposal:
         n = self.store.next_req_number()
         req = p.requirement
         req.key, req.status = f"REQ-{n}", "approved"
@@ -374,13 +386,17 @@ class SpecKeeper:
         return p
 
     def dismiss(self, pid: str, user: str) -> Proposal | None:
-        p = self.store.get_proposal(pid)
-        if p is None or p.status != "pending":
+        if not self.store.claim_proposal(pid):
             return None
+        p = self.store.get_proposal(pid)
         p.status, p.decided_by, p.decided_at = "dismissed", user, _now()
         p.requirement.status = "dismissed"
         self.store.save_proposal(p)
         return p
+
+    def requirement_channels(self) -> set[str]:
+        """Channels where requirements were captured: the only ones a CI run may post its results in."""
+        return {p.channel for r in self.store.requirements() for p in self.store.proposals_for(r.key) if p.channel}
 
     def take_ci(self, junit_xml: str, run_id: str) -> tuple[list[tuple[Requirement, str]], list[str]]:
         """Apply a CI run. Returns (requirement, Slack summary) per requirement touched, and unmapped tests."""

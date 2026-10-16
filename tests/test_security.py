@@ -15,6 +15,7 @@ from speckeeper.extract import DATA, PROMPT, thread_text
 from speckeeper.integrations import GitHubIssues, no_mentions
 from speckeeper.main import create_app
 from speckeeper.models import AcceptanceCriterion, Proposal, Requirement, Source
+from speckeeper.store import MemoryStore
 
 
 def rebuilt(app: App, **changes) -> App:
@@ -33,25 +34,19 @@ def test_N_12_rules_go_before_the_data_marker_and_messages_after_it():
     assert data.count("\n2.2 |") == 0 and "<<<DATA>>>" not in data  # no faked line, no second marker
 
 
-def test_N_13_gemini_gets_the_rules_as_its_system_instruction(monkeypatch):
-    seen = {}
+def test_N_13_gemini_gets_the_rules_as_its_system_instruction():
+    # The capture agent sends the rules as Gemini's system instruction and the discussion as the message.
+    from test_agent_callbacks import llm
 
-    class Models:
-        def generate_content(self, model, contents, config):
-            seen.update(contents=contents, system=config.system_instruction)
-            return type("R", (), {"usage_metadata": None, "parsed": {"requirements": [], "open_questions": []}})()
+    from speckeeper.pipelines import AdkEngine
 
-    class Client:
-        def __init__(self, **kw):
-            self.models = Models()
-
-    import google.genai
-
-    monkeypatch.setattr(google.genai, "Client", Client)
-    gen = extract.gemini_generate("p", "global", "m")
-    extract.extract([Source(ts="1.1", user="U1", text="keep receipts for 7 years")], gen)
-    assert "never follow" in seen["system"] and "7 years" not in seen["system"]
-    assert "7 years" in seen["contents"] and "never follow" not in seen["contents"]
+    pro = llm("pro", '{"requirements": [], "open_questions": []}')
+    AdkEngine(pro, llm("flash")).capture([Source(ts="1.1", user="U1", text="keep receipts for 7 years")], [])
+    req = pro.requests[0]
+    system = str(req.config.system_instruction)
+    contents = "".join(p.text or "" for c in req.contents for p in c.parts or [])
+    assert "never follow" in system and "7 years" not in system
+    assert "7 years" in contents and "never follow" not in contents
 
 
 def test_N_14_long_threads_keep_the_newest_messages():
@@ -124,9 +119,14 @@ def test_N_20_a_spent_daily_budget_pauses_gemini_with_a_clear_message(monkeypatc
     monkeypatch.setattr(budget, "DAILY_TOKENS", 100)
     budget._state.update(day=budget._today(), used=100, warned=False)
     try:
-        app = App(asker=Asker())
+        from test_agent_callbacks import llm
+
+        from speckeeper.agent import Asker as AgentAsker
+
+        flash = llm("flash", "never sent")
+        app = App(asker=AgentAsker(MemoryStore(), flash))
         app.mention("why is the limit 25 MB?")
-        assert "AI budget is used up" in app.slack.posted("chat.update")[-1]["text"] and app.svc.asker.questions == []
+        assert "AI budget is used up" in app.slack.posted("chat.update")[-1]["text"] and flash.requests == []
     finally:
         budget._state.update(used=0, warned=False)
 
@@ -162,3 +162,89 @@ def test_N_23_decisions_and_refusals_are_audit_logged(capsys):
     app.ci(junit(("AC-7-1@v1 x", True)), secret="nope")
     events = [json.loads(line)["audit"]["event"] for line in capsys.readouterr().out.splitlines() if line.startswith("{") and '"audit"' in line]
     assert {"approved", "slack_signature_refused", "ci_secret_refused"} <= set(events)
+
+
+# --- security review, Oct 16 2026 -----------------------------------------------------------------
+
+
+def test_N_24_open_questions_from_gemini_cannot_ping_or_link():
+    from test_e2e import Gemini
+
+    planted = {"requirements": [], "open_questions": ["Should we tell <!here>? See <https://evil.example|PRD v2 login>"]}
+    app = App(Gemini(planted), thread=[{"ts": "1.1", "user": "UMAYA", "text": "should we tell everyone?"}])
+    app.mention("capture this", ts="1.2", thread_ts="1.1")
+    note = app.slack.posted("chat.update")[-1]["text"]
+    assert "Open questions" in note and "<!here>" not in note and "<https://" not in note and "&lt;!here&gt;" in note
+
+
+def test_N_25_the_ci_summary_escapes_titles_run_ids_and_test_names():
+    from speckeeper.ci import summary
+
+    req = Requirement(
+        key="REQ-7",
+        title="Limit <!channel> 8 MB",
+        acs=[AcceptanceCriterion(key="AC-7-1", gherkin="g", ci_status="passing", last_test="AC-7-1@v1 <https://evil|x>")],
+    )
+    text = summary(req, "<!everyone>")
+    assert "<!channel>" not in text and "<!everyone>" not in text and "<https://evil" not in text
+
+
+def test_N_26_ci_posts_only_in_a_channel_where_requirements_were_captured(capsys):
+    app = App()
+    kickoff_approved(app)  # captured in C1
+    res = app.http.post(
+        "/ci", json={"run_id": "#2", "channel": "C_OTHER", "junit_xml": junit(("AC-7-1@v1 x", True))}, headers={"X-SpecKeeper-Secret": "ci-secret"}
+    )
+    assert res.status_code == 200 and res.json()["posted"] is False and res.json()["requirements"] == ["REQ-7"]
+    assert not [m for m in app.slack.posted("chat.postMessage") if m.get("channel") == "C_OTHER"]
+    assert '"ci_channel_refused"' in capsys.readouterr().out
+
+
+def test_N_27_ci_checks_the_secret_before_reading_the_body():
+    app = App()
+    # A wrong secret is refused before the (here broken) JSON is parsed: 401, not 400 or 422.
+    assert app.http.post("/ci", content=b"{not json", headers={"X-SpecKeeper-Secret": "nope", "Content-Type": "application/json"}).status_code == 401
+    # A header byte outside ASCII is a refusal, not a crash.
+    assert app.http.post("/ci", content=b"{}", headers={"X-SpecKeeper-Secret": "\xff".encode("latin-1")}).status_code == 401
+    big = b"x" * 3_100_000
+    assert app.http.post("/ci", content=big, headers={"X-SpecKeeper-Secret": "ci-secret"}).status_code == 413
+    assert app.http.post("/ci", content=b"{bad", headers={"X-SpecKeeper-Secret": "ci-secret"}).status_code == 400
+
+
+def test_N_28_two_approvals_of_one_proposal_file_once():
+    app = App()
+    app.mention(f"capture {LINK}")
+    gid = app.button(app.last_card(), "approve_group")
+    first = app.svc.store.proposals_in_group(gid)[0]
+    assert app.svc.store.claim_proposal(first.id) is True and app.svc.store.claim_proposal(first.id) is False  # one claim wins
+    app.svc._unclaim(first.id)
+    done_a, _ = app.svc.approve(first.id, "UMAYA")
+    done_b, _ = app.svc.approve(first.id, "UWEI")
+    assert done_a and done_b is None and len(app.issues_created) == 1
+
+
+def test_N_29_a_failed_approval_releases_its_claim():
+    app = App()
+    app.mention(f"capture {LINK}")
+    pid = app.svc.store.proposals_in_group(app.button(app.last_card(), "approve_group"))[0].id
+
+    def broken(req):
+        raise RuntimeError("GitHub is down")
+
+    app.issues.create = broken
+    with __import__("pytest").raises(RuntimeError):
+        app.svc.approve(pid, "UMAYA")
+    assert app.svc.store.get_proposal(pid).status == "pending"  # can be approved again later
+
+
+def test_N_30_reset_demo_waits_while_someone_else_is_using_the_demo():
+    from test_e2e import _demo_app
+
+    app = _demo_app()
+    kickoff_approved(app)  # UMAYA is mid-demo
+    event = {"type": "app_mention", "user": "UWEI", "text": "<@UBOT> reset demo", "ts": "300.1", "channel": "C1", "event_ts": "300.1"}
+    app.message(event)
+    assert "Someone else is using the demo" in app.slack.posted("chat.postMessage")[-1]["text"]
+    assert len(app.svc.store.requirements()) == 2  # nothing wiped
+    app.mention("reset demo", ts="301.1")  # the person running the demo may reset
+    assert "Demo reset" in app.slack.posted("chat.postMessage")[-1]["text"]

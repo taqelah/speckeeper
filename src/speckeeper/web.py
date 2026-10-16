@@ -4,6 +4,7 @@ web/index.html, with the links and limits filled in from settings; buttons for l
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime
 from pathlib import Path
 from string import Template
@@ -65,6 +66,11 @@ def status_strip(svc) -> str:
     return '<p class="status" aria-label="Live status">' + " · ".join(parts) + "</p>"
 
 
+# Every link that leaves the page opens in a new tab, so the page stays open behind it; links within
+# the page (href="#...") and links that already say where to open are left alone.
+NEW_TAB = re.compile(r'<a ((?![^>]*\btarget=)[^>]*\bhref="(?!#)[^"]*"[^>]*?)>')
+
+
 def landing(s: Settings, status: str = "") -> str:
     def q(v):
         return html.escape(v, quote=True)
@@ -74,8 +80,26 @@ def landing(s: Settings, status: str = "") -> str:
     if not ctas:
         ctas = _link(repo, "See the code", "ghost")
     minutes = int(s.requests_window_seconds // 60)
-    return Template((WEB / "index.html").read_text()).safe_substitute(
+    channel = html.escape(s.demo_channel_name)
+    join = ""
+    if s.demo_slack_invite.startswith("https://"):
+        join = (
+            "<li><b>Join the demo Slack</b> (two minutes, once). Nothing to install: Slack works in the browser."
+            '<ol class="sub">'
+            f'<li>Open the <a href="{q(s.demo_slack_invite)}" target="_blank" rel="noopener">invitation link</a>.</li>'
+            "<li>Enter your email. Slack emails you a six-character code; type it in. Not there after a minute? Check spam.</li>"
+            "<li>Choose a name. If Slack offers its app, pick <b>use Slack in your browser</b> instead.</li>"
+            f"<li>In the left sidebar, click <b>Channels</b> → <b>Browse channels</b> (or press Ctrl+K / ⌘K), search <b>{channel}</b>, "
+            "open it and click <b>Join channel</b>. Spec Keeper is already there.</li>"
+            "</ol></li>"
+        )
+    page = Template((WEB / "index.html").read_text()).safe_substitute(
         ctas=ctas,
+        join=join,
+        video_hint=f', or <a href="{q(s.demo_video_url)}" target="_blank" rel="noopener">watch the demo video</a>'
+        if s.demo_video_url.startswith("https://")
+        else "",
+        channel=channel,
         status=status,
         notes_cmd=(
             f'<span class="cmd"><code>@Spec Keeper {html.escape(s.demo_notes_url)}</code>'
@@ -90,3 +114,4 @@ def landing(s: Settings, status: str = "") -> str:
         repo=q(repo),
         contact=f' Questions: <a href="mailto:{q(s.contact_email)}">{html.escape(s.contact_email)}</a>' if s.contact_email else "",
     )
+    return NEW_TAB.sub(r'<a \1 target="_blank" rel="noopener">', page)

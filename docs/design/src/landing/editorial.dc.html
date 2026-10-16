@@ -30,7 +30,7 @@ a{color:#c2410c}a:hover{color:#7c2d12}
   </header>
 
   <section style="max-width: 1200px; margin: 0 auto; padding: 72px 24px 56px; display: flex; flex-direction: column; gap: 28px">
-    <h1 style="margin: 0; font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 96px; line-height: 0.92; letter-spacing: -0.04em; text-transform: uppercase; max-width: 1100px">The spec changed in Slack. <span style="color: {{accent}}">Nobody told the tests.</span></h1>
+    <h1 style="margin: 0; font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 96px; line-height: 0.92; letter-spacing: -0.04em; text-transform: uppercase; max-width: 1100px">AI made shipping faster. <span style="color: {{accent}}">Specs can’t keep up.</span></h1>
     <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-end; border-top: 2px solid #111; padding-top: 24px">
       <p style="flex: 2 1 480px; min-width: 0; margin: 0; font-size: 22px; line-height: 1.5">Spec Keeper is an agent in your team's Slack. It turns what a meeting or a thread decided into requirements, writes the PRD and GitHub issues once someone approves, checks every criterion in CI, and flags tests that still pass against yesterday's spec.</p>
       <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; font-family: 'Archivo', sans-serif">
@@ -76,10 +76,10 @@ a{color:#c2410c}a:hover{color:#7c2d12}
   <section style="max-width: 1200px; margin: 0 auto; padding: 56px 24px; display: flex; flex-wrap: wrap; gap: 40px">
     <div style="flex: 1 1 220px; min-width: 0; font-family: 'Archivo', sans-serif"><div style="font-size: 72px; font-weight: 900; line-height: 1; color: {{accent}}">IV</div><div style="font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em">Under the hood</div></div>
     <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
-      <p style="margin: 0; font-size: 24px; line-height: 1.4">Slack waits three seconds for an answer. Every Google product in the stack was tuned so it never has to wait longer.</p>
+      <p style="margin: 0; font-size: 24px; line-height: 1.4">Slack gives an app three seconds to acknowledge each request. Spec Keeper acknowledges every one at once, then does the Gemini work in the background, on a warm Cloud Run instance that keeps its CPU.</p>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border-top: 2px solid #111; border-bottom: 2px solid #111; font-family: 'Archivo', sans-serif">
-        <div style="padding: 16px 12px 16px 0"><div style="font-size: 34px; font-weight: 900">&lt;3s</div><div style="font-size: 13px">Slack's answer</div></div>
-        <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~3s</div><div style="font-size: 13px">Thread watch, from 42 s</div></div>
+        <div style="padding: 16px 12px 16px 0"><div style="font-size: 34px; font-weight: 900">&lt;3s</div><div style="font-size: 13px">Every Slack request acknowledged</div></div>
+        <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~3s</div><div style="font-size: 13px">Checking a thread for changes (was up to 42 s)</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">11–14s</div><div style="font-size: 13px">Reviewing a change</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">37–45s</div><div style="font-size: 13px">Capturing a meeting</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~1s</div><div style="font-size: 13px">Unchanged notes</div></div>
@@ -112,7 +112,7 @@ a{color:#c2410c}a:hover{color:#7c2d12}
 
   <footer style="border-top: 2px solid #111">
     <div style="max-width: 1200px; margin: 0 auto; padding: 24px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-family: 'Archivo', sans-serif; font-size: 14px">
-      <span>Built by Taqelah · Demo data is made up · <a href="[VIDEO LINK]">Watch the demo</a></span>
+      <span>Built by Team taqelah! · Demo data is made up · <a href="[VIDEO LINK]">Watch the demo</a></span>
       <span style="display: flex; flex-wrap: wrap; gap: 18px"><a href="https://docs.google.com/document/d/1rFtDmVpzQ3Bn7SgU_E8AfhI3_QDSqfBkSwHE_W0_lmU/edit">PRD</a><a href="https://github.com/taqelah/checkout-app/issues?q=label%3Arequirement">Issues</a><a href="https://github.com/taqelah/checkout-app/actions">CI</a><a href="https://github.com/taqelah/speckeeper">Code</a></span>
     </div>
   </footer>
