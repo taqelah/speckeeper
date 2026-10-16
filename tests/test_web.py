@@ -56,7 +56,7 @@ def test_copy_buttons_carry_the_test_inputs():
     assert (
         'data-copy="@Spec Keeper https://docs.google.com/document/d/NOTES/edit"' in body
         and 'data-copy="@Spec Keeper reset demo"' in body
-        and "Grounding and guardrails" in body
+        and "Grounding, guardrails and security" in body
         and "Built on Google Cloud, tuned for speed" in body
     )
 
