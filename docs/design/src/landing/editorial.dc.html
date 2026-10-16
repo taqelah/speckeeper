@@ -79,7 +79,7 @@ a{color:#c2410c}a:hover{color:#7c2d12}
       <p style="margin: 0; font-size: 24px; line-height: 1.4">Slack gives an app three seconds to acknowledge each request. Spec Keeper acknowledges every one at once, then does the Gemini work in the background, on a warm Cloud Run instance that keeps its CPU.</p>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border-top: 2px solid #111; border-bottom: 2px solid #111; font-family: 'Archivo', sans-serif">
         <div style="padding: 16px 12px 16px 0"><div style="font-size: 34px; font-weight: 900">&lt;3s</div><div style="font-size: 13px">Every Slack request acknowledged</div></div>
-        <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~3s</div><div style="font-size: 13px">Thread watch, from 42 s</div></div>
+        <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~3s</div><div style="font-size: 13px">Checking a thread for changes (was up to 42 s)</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">11–14s</div><div style="font-size: 13px">Reviewing a change</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">37–45s</div><div style="font-size: 13px">Capturing a meeting</div></div>
         <div style="padding: 16px 12px"><div style="font-size: 34px; font-weight: 900">~1s</div><div style="font-size: 13px">Unchanged notes</div></div>
