@@ -86,3 +86,10 @@ def test_try_it_explains_joining_slack_step_by_step_when_there_is_an_invite():
 def test_the_reset_hint_offers_the_video_only_when_there_is_one():
     assert "watch the demo video" not in page().get("/").text
     assert 'href="https://youtu.be/v"' in page(demo_video_url="https://youtu.be/v").get("/").text.split("Start clean")[1]
+
+
+def test_try_it_shows_memory_bank_and_trust_names_recovery_and_supply_chain():
+    body = page().get("/").text
+    assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "3 · Ask a question</b> in the same thread" in body
+    assert "6 · Ask why." in body and "changed since you last asked" in body and "7 · Try to break it" in body
+    assert "Recoverable and audited." in body and "point-in-time recovery" in body and "Supply chain." in body
