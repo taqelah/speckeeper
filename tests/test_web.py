@@ -22,6 +22,7 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     assert "youtube-nocookie.com/embed/xVQnzTEOaO4" in body and body.index('id="demo"') < body.index('id="problem"')  # the demo video, before the problem
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
+    assert "If you hit a limit." in body and "each person gets 7 every 5 minutes; approving, dismissing and retiring don’t count" in body
     assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
 
 
