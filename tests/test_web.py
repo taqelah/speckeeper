@@ -22,8 +22,8 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     assert "youtube-nocookie.com/embed/xVQnzTEOaO4" in body and body.index('id="demo"') < body.index('id="problem"')  # the demo video, before the problem
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
-    assert "6 · Watch the tests go stale." in body and "taqelah/checkout-app/actions" in body.split("6 · Watch the tests go stale.")[1][:600]
-    assert "9 · Undo a mistake." in body and 'data-copy="@Spec Keeper retire REQ-11 wrong notes"' in body
+    assert "9 · Watch the tests go stale." in body and "taqelah/checkout-app/actions" in body.split("9 · Watch the tests go stale.")[1][:700]
+    assert "12 · Undo a mistake." in body and 'data-copy="@Spec Keeper retire REQ-13 wrong notes"' in body
     assert "If you hit a limit." in body and "each person gets 7 every 5 minutes; approving, dismissing and retiring don’t count" in body
     assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
 
@@ -83,7 +83,7 @@ def test_try_it_explains_joining_slack_step_by_step_when_there_is_an_invite():
     body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_channel_name="project-checkout").get("/").text
     assert "Join the demo Slack" in body and 'href="https://join.slack.com/t/x/shared_invite/abc"' in body
     assert "six-character code" in body and "Browse channels" in body and "<b>project-checkout</b>" in body
-    assert "About fifteen minutes in #project-checkout" in body and "Start clean</b> in #project-checkout" in body
+    assert "About twenty minutes in #project-checkout" in body and "Start clean</b> in #project-checkout" in body
     assert "Join the demo Slack" not in page().get("/").text  # no invite link: no join steps
 
 
@@ -94,8 +94,8 @@ def test_the_reset_hint_offers_the_video_only_when_there_is_one():
 
 def test_try_it_shows_memory_bank_and_trust_names_recovery_and_supply_chain():
     body = page().get("/").text
-    assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "3 · Ask a question</b> in the same thread" in body
-    assert "7 · Ask why." in body and "changed since you last asked" in body and "8 · Try to break it" in body
+    assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "6 · Ask a question</b> in the same thread" in body
+    assert "10 · Ask why." in body and "changed since you last asked" in body and "11 · Try to break it" in body
     assert "Recoverable and audited." in body and "point-in-time recovery" in body and "Supply chain." in body
 
 
@@ -119,3 +119,27 @@ def test_every_link_off_the_page_opens_in_a_new_tab():
     assert len(away) > 15 and all('target="_blank"' in a and 'rel="noopener"' in a for a in away)
     assert all(a.count("target=") <= 1 for a in links)  # never added twice
     assert '<a class="brand" href="#top">' in body  # links within the page stay in the tab
+
+
+def test_C_59_the_new_flow_has_copyable_commands_for_the_current_product_and_the_v2_prd():
+    body = (
+        page(
+            demo_baseline_url="https://docs.google.com/document/d/BASE/edit",
+            demo_prd_url="https://docs.google.com/document/d/V2PRD/edit",
+            prd_doc_id="SPEC",
+        )
+        .get("/")
+        .text
+    )
+    assert 'data-copy="@Spec Keeper https://docs.google.com/document/d/BASE/edit"' in body
+    assert 'data-copy="@Spec Keeper prd Checkout v2 https://docs.google.com/document/d/V2PRD/edit"' in body
+    assert 'href="https://docs.google.com/document/d/SPEC/edit" target="_blank" rel="noopener">the product spec</a>' in body
+    assert 'href="https://docs.google.com/document/d/V2PRD/edit" target="_blank" rel="noopener">the Checkout v2 PRD</a>' in body
+    steps = [f"{n} · " for n in range(13)]
+    assert all(f"<li><b>{x}" in body for x in steps)  # 0 to 12, in order
+    assert [body.index(f"<li><b>{x}") for x in steps] == sorted(body.index(f"<li><b>{x}") for x in steps)
+
+
+def test_N_56_without_the_links_the_steps_say_what_to_post():
+    body = page().get("/").text
+    assert "with the pinned current product link" in body and "with the pinned PRD link" in body
