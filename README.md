@@ -17,6 +17,9 @@ the change and flags the tests that still pass against the old text.
 Built for the **AI Builder Cup 2026** (Future of Work & Enterprise Productivity) with Gemini on
 Vertex AI and the Agent Development Kit.
 
+▶ **[Watch the demo](https://www.youtube.com/watch?v=oDYUKIYXDic)** (4 min): Spec Keeper joins a live product,
+keeps its spec, PRD and CI in step through the next initiative, and reports tests that prove an old PRD as stale.
+
 ## What it does
 
 | Step | In Slack | What Spec Keeper does |
