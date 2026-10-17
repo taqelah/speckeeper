@@ -637,7 +637,7 @@ def test_C_16_approve_shows_progress_before_the_issues_are_written():
     app.click("approve_group", app.button(card, "approve_group"), card)
     progress, final = app.slack.posted("chat.update")[-2:]
     assert "Approving" in progress["text"] and "actions" not in json.dumps([b["type"] for b in progress["blocks"]])
-    assert "PRD v1.0.0" in final["text"] and "Written to the PRD." in final["text"]
+    assert "PRD v1.0.0" in final["text"] and "Written to the product spec." in final["text"]
 
 
 def test_C_17_without_a_prd_doc_the_card_does_not_claim_one_was_written():
@@ -645,7 +645,7 @@ def test_C_17_without_a_prd_doc_the_card_does_not_claim_one_was_written():
     app.svc.prd = None
     kickoff_approved(app)
     note = app.slack.posted("chat.update")[-1]["text"]
-    assert "PRD v1.0.0" in note and "Written to the PRD" not in note and "2 issues opened." in note
+    assert "PRD v1.0.0" in note and "Written to" not in note and "2 issues opened." in note
 
 
 def test_C_18_approving_a_card_from_before_a_restart_says_capture_again():
@@ -660,7 +660,7 @@ def test_C_19_the_approval_note_links_the_prd_doc_and_the_issues():
     app.prd.doc_id, app.issues.repo = "PRDDOC", "acme/checkout"
     kickoff_approved(app)
     note = app.slack.posted("chat.update")[-1]["text"]
-    assert "<https://docs.google.com/document/d/PRDDOC/edit|the PRD>" in note
+    assert "<https://docs.google.com/document/d/PRDDOC/edit|the product spec>" in note
     assert "<https://github.com/acme/checkout/issues?q=is%3Aissue+is%3Aopen+label%3Arequirement|2 issues>" in note
 
 

@@ -38,6 +38,7 @@ class Requirement(BaseModel):
     acs: list[AcceptanceCriterion] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
     issue_number: int | None = None
+    initiative: str = ""  # the initiative it was added in ("Checkout v2"); "" for the baseline
 
     @property
     def verified(self) -> bool:
@@ -62,5 +63,6 @@ class Proposal(BaseModel):
     base_version: int = 0  # for kind "change" or "retire": the target's version when asked (0: not recorded)
     reason: str = ""  # for kind "retire": why, as the person typed it
     asked_by: str = ""  # for kind "retire": the Slack user who asked
+    initiative: str = ""  # the initiative it was decided in, if one was open (its PRD lists it)
     decided_at: str = ""  # ISO time of the approval or dismissal
     previous: Requirement | None = None  # for an approved change: the requirement as it was before

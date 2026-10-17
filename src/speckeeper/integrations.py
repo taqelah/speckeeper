@@ -44,13 +44,16 @@ class GoogleDocsPRD:
         self.doc_id, self.repo = doc_id, repo
 
     def publish(self, reqs: list[Requirement], releases: list[dict], version: str, now: str) -> None:
+        name = self.drive.files().get(fileId=self.doc_id, fields="name").execute(num_retries=DRIVE_RETRIES)["name"]
+        title = re.sub(r"\s*[·\-|:]\s*(PRD|Product spec)\s*$", "", name, flags=re.I) or name  # "Checkout · Product spec" -> "Checkout"
+        self.publish_page(self.doc_id, render(title, reqs, releases, version, self.repo, now))
+
+    def publish_page(self, doc_id: str, page: str) -> None:
+        """Replace a doc's content with an HTML page: the product spec, or an initiative's PRD."""
         from googleapiclient.http import MediaInMemoryUpload
 
-        name = self.drive.files().get(fileId=self.doc_id, fields="name").execute(num_retries=DRIVE_RETRIES)["name"]
-        title = re.sub(r"\s*[·\-|:]\s*PRD\s*$", "", name) or name  # "Checkout v2 · PRD" -> "Checkout v2"
-        page = render(title, reqs, releases, version, self.repo, now)
         media = MediaInMemoryUpload(page.encode(), mimetype="text/html", resumable=False)
-        self.drive.files().update(fileId=self.doc_id, media_body=media).execute(num_retries=DRIVE_RETRIES)
+        self.drive.files().update(fileId=doc_id, media_body=media).execute(num_retries=DRIVE_RETRIES)
 
 
 class GitHubIssues:

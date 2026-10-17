@@ -247,7 +247,10 @@ class SpecKeeper:
                     closed += 1
                 except Exception:
                     log.exception("couldn't close issue %s", r.issue_number)
+        linked = self.store.get_meta("initiatives", "")
         self.store.clear()
+        if linked:
+            self.store.set_meta("initiatives", linked)  # the PRD docs stay linked; they're rebuilt empty
         self.publish_prd()
         audit("demo_reset", user=user, requirements=len(reqs), issues_closed=closed)
         return {"requirements": len(reqs), "issues": closed}
@@ -304,6 +307,8 @@ class SpecKeeper:
         if before:
             proposals = self._drop_repeats(proposals)
         captured_at = self.store.get_meta(f"docat:{doc_id}")
+        if not before and self.prd_version:
+            self.store.set_meta(f"major:{group_id}", "1")  # a new meeting on top of the baseline: its approval is the next major version
         self.store.set_meta(f"doc:{doc_id}", group_id)
         self.store.set_meta(f"dochash:{doc_id}", digest)
         self.store.set_meta(f"docat:{doc_id}", _now())
@@ -336,29 +341,103 @@ class SpecKeeper:
     def prd_version(self) -> str:
         return self.store.get_meta("prd_version", "")
 
+    @staticmethod
+    def _next_version(meta: dict, group_id: str) -> tuple[str, dict]:
+        """The version an approval from `group_id` gets, and the meta to write with it. The first approval is
+        the baseline v1.0.0. A new meeting captured on top of it (Checkout v2's kickoff) is the next major
+        version. Everything else from the same meeting, all at once or one by one, keeps that version while
+        nothing else is approved in between; any other approval is a minor version."""
+        current = meta.get("prd_version", "")
+        if not current:
+            return BASELINE, {"baseline_group": group_id, "last_group": group_id}
+        if group_id and group_id in (meta.get("baseline_group"), meta.get("last_group")):
+            return current, {}
+        major, minor, _ = (int(x) for x in current.split("."))
+        if group_id and meta.get(f"major:{group_id}"):
+            return f"{major + 1}.0.0", {"last_group": group_id}
+        return f"{major}.{minor + 1}.0", {"last_group": ""}
+
+    def next_version(self, group_id: str) -> str:
+        """What approving this meeting's card would make the PRD: for the card's Approve all button."""
+        keys = ("prd_version", "baseline_group", "last_group", f"major:{group_id}")
+        return self._next_version({k: self.store.get_meta(k, "") for k in keys}, group_id)[0]
+
     def _release(self, what: str, user: str, group_id: str = "") -> str:
-        """The first approval is the baseline v1.0.0, and so is everything else from the same meeting,
-        however it is approved (all at once or one by one). Each later approval is a minor version.
-        Read and written in one step, so two approvals at once get two versions and two release lines."""
+        """Records the next version (see _next_version) and its release line, read and written in one step,
+        so two approvals at once get two versions and two release lines."""
         at = _now()
+        initiative = self._initiative_for(group_id)
 
         def bump(meta: dict) -> dict:
-            current, updates = meta.get("prd_version", ""), {}
-            if group_id and current and meta.get("baseline_group") == group_id:
-                version = current
-            elif not current:
-                version = BASELINE
-                updates["baseline_group"] = group_id
-            else:
-                major, minor, _ = (int(x) for x in current.split("."))
-                version = f"{major}.{minor + 1}.0"
+            version, updates = self._next_version(meta, group_id)
             releases = json.loads(meta.get("releases", "") or "[]")
-            releases.append({"version": version, "what": what, "by": user, "at": at})
+            releases.append({"version": version, "what": what, "by": user, "at": at, "initiative": initiative})
             return updates | {"prd_version": version, "releases": json.dumps(releases)}
 
         version = self.store.update_meta(bump)["prd_version"]
         self.publish_prd()
         return version
+
+    # --- initiatives: a PRD doc per initiative ("Checkout v2"), next to the living product spec ---
+
+    @property
+    def initiatives(self) -> list[dict]:
+        return json.loads(self.store.get_meta("initiatives", "") or "[]")
+
+    def current_initiative(self) -> dict | None:
+        """The initiative most recently linked: approvals from now on are decided in it."""
+        return self.initiatives[-1] if self.initiatives else None
+
+    def link_initiative(self, name: str, doc_id: str, user: str) -> dict:
+        """Links an initiative's PRD doc. The same name again moves it to another doc. Its page is written at
+        once, so a doc Spec Keeper can't write to fails here, not on the next approval."""
+        name = " ".join(name.split())[:80]
+        if not name or not doc_id:
+            raise ValueError("an initiative needs a name and a doc")
+        init = {"name": name, "doc_id": doc_id, "by": user, "at": _now()}
+
+        def add(meta: dict) -> dict:
+            items = [i for i in json.loads(meta.get("initiatives", "") or "[]") if i["name"].lower() != name.lower()]
+            return {"initiatives": json.dumps(items + [init])}
+
+        if self.prd and hasattr(self.prd, "publish_page"):
+            with self._publishing:
+                self._publish_initiative(init)  # first, and raising: a doc it can't write to isn't linked
+        self.store.update_meta(add)
+        audit("initiative_linked", user=user, initiative=name)
+        return init
+
+    def _initiative_for(self, group_id: str) -> str:
+        """The initiative an approval belongs to: the current one, except for the baseline itself."""
+        cur = self.current_initiative()
+        if not cur or not self.prd_version or (group_id and group_id == self.store.get_meta("baseline_group")):
+            return ""
+        return cur["name"]
+
+    def initiative_parts(self, name: str) -> dict:
+        """What an initiative's PRD shows: requirements it added, ones it changed (with how they read before
+        it), ones it retired, and the rest of the product as context."""
+        new, changed, retired, context = [], [], [], []
+        for r in sorted(self.store.requirements(), key=lambda r: int(r.key.split("-")[1])):
+            mine = [p for p in self.store.proposals_for(r.key) if p.status == "approved" and p.initiative == name]
+            if any(p.kind == "retire" for p in mine):
+                retired.append(r)
+            elif r.status != "approved":
+                continue
+            elif any(p.kind == "new" for p in mine):
+                new.append(r)
+            elif changes := [p for p in mine if p.kind == "change"]:
+                changed.append((changes[0].previous or r, r))
+            else:
+                context.append(r)
+        return {"new": new, "changed": changed, "retired": retired, "context": context}
+
+    def _publish_initiative(self, init: dict) -> None:
+        from .prd import render_initiative
+
+        releases = [x for x in self.releases if x.get("initiative") == init["name"]]
+        page = render_initiative(init["name"], self.initiative_parts(init["name"]), releases, self.prd_version, getattr(self.prd, "repo", ""), _now())
+        self.prd.publish_page(init["doc_id"], page)
 
     @property
     def releases(self) -> list[dict]:
@@ -373,13 +452,20 @@ class SpecKeeper:
         could write a list read before the other's requirement was saved."""
         if not self.prd:
             return False
-        try:
-            with self._publishing:
+        ok = True
+        with self._publishing:
+            try:
                 self.prd.publish(self.store.requirements(), self.releases, self.prd_version, _now())
-            return True
-        except Exception:
-            log.exception("Couldn't update the PRD doc")
-            return False
+            except Exception:
+                log.exception("Couldn't update the product spec doc")
+                ok = False
+            for init in self.initiatives if hasattr(self.prd, "publish_page") else []:
+                try:
+                    self._publish_initiative(init)
+                except Exception:
+                    log.exception("Couldn't update the PRD doc for %s", init["name"])
+                    ok = False
+        return ok
 
     def approve_group(self, group_id: str, user: str, user_name: str = "") -> tuple[list[Proposal], str]:
         """Approve every pending proposal from one meeting in one go: the PRD's baseline."""
@@ -437,9 +523,11 @@ class SpecKeeper:
             self.store.save_proposal(p)
 
     def _approve_new(self, p: Proposal, user: str) -> Proposal:
-        n = self.store.next_req_number()
         req = p.requirement
+        wanted = int(req.key.split("-")[1]) if re.fullmatch(r"REQ-\d{1,5}", req.key) else None  # an ID the document gave it
+        n = self.store.claim_req_number(wanted)
         req.key, req.status = f"REQ-{n}", "approved"
+        req.initiative = p.initiative = self._initiative_for(p.group_id)
         for i, ac in enumerate(req.acs, 1):
             ac.key = f"AC-{n}-{i}"
         if self.issues:
@@ -475,6 +563,7 @@ class SpecKeeper:
                 self.store.replace_requirement(old, req.version)  # nothing half-done: the card can be approved again
                 raise
         p.previous = old
+        p.initiative = self._initiative_for(p.group_id)
         p.requirement, p.status, p.decided_by, p.decided_at = req, "approved", user, _now()
         self.store.save_proposal(p)
         return p
@@ -547,6 +636,7 @@ class SpecKeeper:
                     self.issues.close(r.issue_number, f"Retired after approval in Slack by {user_name or user}{why}. Spec Keeper no longer tracks it.")
                 except Exception:
                     log.exception("couldn't close issue %s", r.issue_number)  # retired all the same; the issue can be closed by hand
+            p.initiative = self._initiative_for("")
             p.requirement, p.status, p.decided_by, p.decided_at = retired, "approved", user, _now()
             self.store.save_proposal(p)
             done.append(p)

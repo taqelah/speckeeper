@@ -27,6 +27,7 @@ class Store(Protocol):
     def get_proposal(self, pid: str) -> Proposal | None: ...
     def claim_proposal(self, pid: str) -> bool: ...
     def next_req_number(self) -> int: ...
+    def claim_req_number(self, wanted: int | None) -> int: ...
     def save_requirement(self, r: Requirement) -> None: ...
     def replace_requirement(self, r: Requirement, expected_version: int) -> bool: ...
     def get_requirement(self, key: str) -> Requirement | None: ...
@@ -77,6 +78,15 @@ class MemoryStore:
         n = self._next
         self._next += 1
         return n
+
+    def claim_req_number(self, wanted: int | None) -> int:
+        """`wanted` (the number a document gives a requirement) if no requirement has it, else the next one.
+        Either way later numbers carry on after it, so REQ-9 from an existing spec is followed by REQ-10."""
+        with _claims:
+            if wanted and f"REQ-{wanted}" not in self._reqs:
+                self._next = max(self._next, wanted + 1)
+                return wanted
+            return self.next_req_number()
 
     def save_requirement(self, r: Requirement) -> None:
         self._reqs[r.key] = r.model_copy(deep=True)
@@ -171,6 +181,11 @@ class FileStore(MemoryStore):
         self._save()
         return n
 
+    def claim_req_number(self, wanted: int | None) -> int:
+        n = super().claim_req_number(wanted)
+        self._save()
+        return n
+
     def save_requirement(self, r: Requirement) -> None:
         super().save_requirement(r)
         self._save()
@@ -235,6 +250,24 @@ class FirestoreStore:
             return n
 
         return bump(transaction)
+
+    def claim_req_number(self, wanted: int | None) -> int:
+        """`wanted` if no requirement has it, else the next number; later numbers carry on after it. One
+        transaction over the counter and that requirement, across instances."""
+        counter = self._col("meta").document("counters")
+        taken = self._col("requirements").document(f"REQ-{wanted}") if wanted else None
+
+        @self._fs.transactional
+        def claim(tx) -> int:
+            snap = counter.get(transaction=tx)
+            n = (snap.to_dict() or {}).get("next_req", self._first) if snap.exists else self._first
+            if taken is not None and not taken.get(transaction=tx).exists:
+                tx.set(counter, {"next_req": max(n, wanted + 1)}, merge=True)
+                return wanted
+            tx.set(counter, {"next_req": n + 1}, merge=True)
+            return n
+
+        return claim(self._db.transaction())
 
     def save_requirement(self, r: Requirement) -> None:
         self._col("requirements").document(r.key).set(r.model_dump())
