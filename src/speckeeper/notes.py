@@ -44,6 +44,18 @@ def passages(doc_id: str, title: str, text: str) -> list[Source]:
     return out
 
 
+# The Drive client keeps its connection open between requests; after a quiet spell it can be gone, and
+# the next request fails with a broken pipe. The client retries that (and 429s and 5xx, with backoff)
+# only when asked to.
+DRIVE_RETRIES = 3
+
+
+def no_access(e: Exception) -> bool:
+    """Drive said it can't see the doc (not shared with the service account, or no such doc), as opposed
+    to Drive being unreachable."""
+    return getattr(getattr(e, "resp", None), "status", None) in (403, 404)
+
+
 def drive_fetch() -> FetchDoc:
     """Read a doc as plain text with the Drive API. Locally this runs as the service account through
     `gcloud auth application-default login --impersonate-service-account …`; on Cloud Run as the
@@ -55,8 +67,8 @@ def drive_fetch() -> FetchDoc:
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
 
     def fetch(doc_id: str) -> tuple[str, str]:
-        meta = drive.files().get(fileId=doc_id, fields="name", supportsAllDrives=True).execute()
-        body = drive.files().export(fileId=doc_id, mimeType="text/plain").execute()
+        meta = drive.files().get(fileId=doc_id, fields="name", supportsAllDrives=True).execute(num_retries=DRIVE_RETRIES)
+        body = drive.files().export(fileId=doc_id, mimeType="text/plain").execute(num_retries=DRIVE_RETRIES)
         return meta["name"], body.decode("utf-8") if isinstance(body, bytes) else body
 
     return fetch

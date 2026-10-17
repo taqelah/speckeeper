@@ -7,6 +7,7 @@ import re
 import httpx
 
 from .models import Requirement
+from .notes import DRIVE_RETRIES
 from .prd import render, source_parts
 
 
@@ -45,11 +46,11 @@ class GoogleDocsPRD:
     def publish(self, reqs: list[Requirement], releases: list[dict], version: str, now: str) -> None:
         from googleapiclient.http import MediaInMemoryUpload
 
-        name = self.drive.files().get(fileId=self.doc_id, fields="name").execute()["name"]
+        name = self.drive.files().get(fileId=self.doc_id, fields="name").execute(num_retries=DRIVE_RETRIES)["name"]
         title = re.sub(r"\s*[·\-|:]\s*PRD\s*$", "", name) or name  # "Checkout v2 · PRD" -> "Checkout v2"
         page = render(title, reqs, releases, version, self.repo, now)
         media = MediaInMemoryUpload(page.encode(), mimetype="text/html", resumable=False)
-        self.drive.files().update(fileId=self.doc_id, media_body=media).execute()
+        self.drive.files().update(fileId=self.doc_id, media_body=media).execute(num_retries=DRIVE_RETRIES)
 
 
 class GitHubIssues:

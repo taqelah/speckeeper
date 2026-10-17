@@ -43,7 +43,7 @@ from .cards import (
     suggestion_card,
 )
 from .models import Source
-from .notes import FetchDoc, doc_id_in
+from .notes import FetchDoc, doc_id_in, no_access
 from .service import OUTDATED, CaptureInProgress, NotesEmpty, OutdatedChange, RequirementRetired, RetireRefused, SpecKeeper
 
 log = logging.getLogger("speckeeper")
@@ -376,7 +376,7 @@ def build_slack_app(
             return
         except Exception as e:
             log.exception("meeting capture failed")
-            unreadable = type(e).__name__ in ("PermissionError", "HttpError")
+            unreadable = isinstance(e, PermissionError) or no_access(e)  # not shared: not a dropped connection
             text = (
                 "I couldn't open those notes. Share the doc with Spec Keeper's service account (Viewer) and try again."
                 if unreadable
