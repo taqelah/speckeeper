@@ -71,7 +71,8 @@ def build_tools(store: Store) -> list:
     docstrings and type hints to tell Gemini what each one does."""
 
     def list_requirements() -> list[dict]:
-        """List every approved requirement with its key, title, version and whether CI verified it."""
+        """List every approved requirement with its key, title, version and whether CI verified it.
+        Retired requirements are left out; get_requirement and get_history still find them."""
         return [
             {"key": r.key, "title": r.title, "version": r.version, "verified_by_ci": r.verified}
             for r in sorted(store.requirements(), key=lambda r: int(r.key.split("-")[1]))
@@ -89,12 +90,16 @@ def build_tools(store: Store) -> list:
     def get_history(key: str) -> list[dict]:
         """Get the decision history of a requirement (for example REQ-7): when it was first approved,
         every later change with what it said before and after, who approved it, when, and the
-        conversation the change came from."""
+        conversation the change came from; and if it was retired (taken out after approval), who
+        retired it, when and why."""
         out = []
         for p in store.proposals_for(key.strip().upper()):
             if p.status != "approved":
                 continue
             when = datetime.fromisoformat(p.decided_at).astimezone(TZ).strftime("%b %d, %H:%M") if p.decided_at else ""
+            if p.kind == "retire":
+                out.append({"event": "retired", "retired_by_slack_user": p.decided_by, "retired_at": when, "reason": p.reason or "none given"})
+                continue
             entry = {
                 "event": "changed" if p.kind == "change" else "approved",
                 "approved_by_slack_user": p.decided_by,

@@ -26,6 +26,9 @@ from .cards import (
     DISMISS_ALL,
     EDIT,
     IGNORE_SUGGESTION,
+    RETIRE_ASK,
+    RETIRE_CONFIRM,
+    RETIRE_KEEP,
     REVIEW_EACH,
     REVIEW_SUGGESTION,
     _esc,
@@ -35,14 +38,17 @@ from .cards import (
     decided_card,
     decided_group_card,
     defang,
+    retire_button,
+    retire_card,
     suggestion_card,
 )
 from .models import Source
 from .notes import FetchDoc, doc_id_in
-from .service import OUTDATED, CaptureInProgress, NotesEmpty, OutdatedChange, SpecKeeper
+from .service import OUTDATED, CaptureInProgress, NotesEmpty, OutdatedChange, RequirementRetired, RetireRefused, SpecKeeper
 
 log = logging.getLogger("speckeeper")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
+REQ_KEY = re.compile(r"\bREQ-\d+\b", re.IGNORECASE)
 
 TZ = "Asia/Singapore"  # how message times are written in citations
 
@@ -64,7 +70,8 @@ HELP = (
     "Mention me in a thread: `@Spec Keeper capture this` to turn what was agreed into a requirement for approval, "
     "share a meeting notes link with me (`@Spec Keeper <link>`) to capture everything the meeting agreed, "
     "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?` "
-    "In threads you mention me in, I'll suggest a capture when a requirement changes (`@Spec Keeper mute` stops that)."
+    "In threads you mention me in, I'll suggest a capture when a requirement changes (`@Spec Keeper mute` stops that). "
+    "Approved one by mistake? `@Spec Keeper retire REQ-12 wrong notes` asks an approver to take it out."
 )
 
 
@@ -234,6 +241,10 @@ def build_slack_app(
                 else "Unmuted: I'll suggest a capture here when a requirement changes."
             )
             await say(text=note, thread_ts=thread_ts)
+            return
+        if first == "retire":
+            raw = MENTION.sub("", event.get("text", "")).strip()[len("retire") :]
+            await ask_retire(client, channel, thread_ts, event.get("user", ""), REQ_KEY.findall(raw), " ".join(REQ_KEY.sub("", raw).split()).strip(" ,.:;-"))
             return
         await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in
         question = text.endswith("?") or first in QUESTION_WORDS
@@ -530,9 +541,11 @@ def build_slack_app(
         try:
             p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
         except OutdatedChange as e:
-            audit("change_outdated", user=user, target=e.target, base=e.base, current=e.current)
+            audit("change_outdated", user=user, target=e.target, base=e.base, current=e.current, retired=isinstance(e, RequirementRetired))
             note = (
-                f":warning: Not approved: *{e.target} is at v{e.current} now*, and this change was written against v{e.base}. "
+                f":warning: Not approved: *{e.target} was retired*, and approving this change would bring it back. Nothing was written."
+                if isinstance(e, RequirementRetired)
+                else f":warning: Not approved: *{e.target} is at v{e.current} now*, and this change was written against v{e.base}. "
                 f"Approving it would undo what changed since. Nothing was written. Capture again to get a change against v{e.current}."
             )
             await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **without_buttons(body["message"], note))
@@ -548,8 +561,9 @@ def build_slack_app(
                 note += f" Issue {issue_link(r.issue_number)} updated."
             if outdated:
                 note += f" Stale until tests are updated to @v{r.version}: {', '.join(outdated)}."
-            # Keep the diff on the card; swap the buttons for what happened.
+            # Keep the diff on the card; swap the buttons for what happened, and offer Retire under it.
             card = without_buttons(body["message"], note)
+            (card["attachments"][-1]["blocks"] if card["attachments"] else card["blocks"]).append(retire_button([r.key]))
             await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **card)
             return
         note = (
@@ -581,6 +595,73 @@ def build_slack_app(
             user=body["user"]["id"],
             text="Editing isn't available. Dismiss this card, fix the thread or the meeting notes, and capture again.",
         )
+
+    # --- retire ---
+
+    async def ask_retire(client, channel: str, thread_ts: str, user: str, keys: list[str], reason: str) -> None:
+        """Post a card asking an approver to retire these requirements. Anyone may ask."""
+        try:
+            proposals = await asyncio.to_thread(svc.request_retire, keys, reason, channel, thread_ts, user)
+        except RetireRefused as e:
+            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=str(e))
+            return
+        audit("retire_asked", user=user, requirements=",".join(p.target for p in proposals), channel=channel)
+        res = await client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f"Retire {', '.join(p.target for p in proposals)}?",
+            blocks=retire_card(proposals[0].group_id, proposals),
+        )
+        for p in proposals:
+            svc.set_card(p.id, res["ts"])
+
+    @app.action(RETIRE_ASK)
+    async def on_retire_ask(ack, body, client):
+        await ack()
+        channel, message = body["channel"]["id"], body["message"]
+        thread = message.get("thread_ts") or message["ts"]
+        await ask_retire(client, channel, thread, body["user"]["id"], body["actions"][0]["value"].split(","), "")
+
+    @app.action(RETIRE_CONFIRM)
+    async def on_retire_confirm(ack, body, client):
+        await ack()
+        if not await may_decide(client, body):
+            return
+        gid, user = body["actions"][0]["value"], body["user"]["id"]
+        group = svc.store.proposals_in_group(gid)
+        if not group:
+            await stale(client, body)
+            return
+        await working(client, body, f"Retiring for <@{user}>…")
+        done, version, skipped = await asyncio.to_thread(svc.retire_group, gid, user, body["user"].get("name", ""))
+        if done:
+            keys = ", ".join(p.target for p in done)
+            audit("retired", user=user, requirements=keys, prd_version=version)
+            closed = [p.requirement.issue_number for p in done if p.requirement.issue_number]
+            note = f":wastebasket: Retired by <@{user}>: *{keys}*. PRD is now v{version}." + (
+                f" Closed {', '.join(issue_link(n) for n in closed)}." if closed else ""
+            )
+        else:
+            note = ""
+        if skipped:
+            note += f" Not retired, changed since this was asked: {', '.join(skipped)}. Ask again if it should still go."
+        if not done and not skipped:
+            return  # someone else's click got there first
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note.strip(), blocks=retire_card(gid, group, note.strip()))
+
+    @app.action(RETIRE_KEEP)
+    async def on_retire_keep(ack, body, client):
+        await ack()
+        if not await may_decide(client, body):
+            return
+        gid, user = body["actions"][0]["value"], body["user"]["id"]
+        group = svc.store.proposals_in_group(gid)
+        kept = [p for p in group if svc.dismiss(p.id, user)]
+        if not kept:
+            return
+        audit("retire_kept", user=user, requirements=",".join(p.target for p in kept))
+        note = f"Kept by <@{user}>. Nothing was changed."
+        await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **without_buttons(body["message"], note))
 
     # --- thread watch ---
 

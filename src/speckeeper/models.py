@@ -34,7 +34,7 @@ class Requirement(BaseModel):
     key: str  # REQ-7, assigned on approval
     title: str
     version: int = 1
-    status: Literal["proposed", "approved", "dismissed", "superseded"] = "proposed"
+    status: Literal["proposed", "approved", "dismissed", "superseded", "retired"] = "proposed"  # retired: taken out after approval, history kept
     acs: list[AcceptanceCriterion] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
     issue_number: int | None = None
@@ -48,7 +48,7 @@ class Proposal(BaseModel):
     """What a card asks a person to approve. Nothing is written until it is approved."""
 
     id: str
-    kind: Literal["new", "change"] = "new"
+    kind: Literal["new", "change", "retire"] = "new"
     requirement: Requirement
     channel: str
     thread_ts: str
@@ -58,7 +58,9 @@ class Proposal(BaseModel):
     group_id: str = ""  # proposals captured together from one meeting share a group
     created_at: str = ""  # when it was captured (ISO time)
     seq: int = 0  # its position in that capture, so a meeting's requirements are numbered in meeting order
-    target: str = ""  # for kind "change": the approved requirement it changes, e.g. REQ-7
-    base_version: int = 0  # for kind "change": the version of the target it was written against (0: not recorded)
+    target: str = ""  # for kind "change" or "retire": the approved requirement it changes, e.g. REQ-7
+    base_version: int = 0  # for kind "change" or "retire": the target's version when asked (0: not recorded)
+    reason: str = ""  # for kind "retire": why, as the person typed it
+    asked_by: str = ""  # for kind "retire": the Slack user who asked
     decided_at: str = ""  # ISO time of the approval or dismissal
     previous: Requirement | None = None  # for an approved change: the requirement as it was before

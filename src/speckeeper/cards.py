@@ -11,6 +11,7 @@ from .prd import meeting_label, source_parts
 
 APPROVE, EDIT, DISMISS = "approve_proposal", "edit_proposal", "dismiss_proposal"
 APPROVE_ALL, REVIEW_EACH, DISMISS_ALL = "approve_group", "review_group", "dismiss_group"
+RETIRE_ASK, RETIRE_CONFIRM, RETIRE_KEEP = "retire_ask", "retire_confirm", "retire_keep"
 REVIEW_SUGGESTION, IGNORE_SUGGESTION = "review_suggestion", "ignore_suggestion"
 
 
@@ -108,10 +109,23 @@ def approval_card(p: Proposal) -> list[dict]:
     ]
 
 
+def retire_button(keys: list[str]) -> dict:
+    """On a card whose requirements were approved: the quick way out if they shouldn't have been. It only
+    asks; a confirmation card follows."""
+    label = "Retire…" if len(keys) == 1 else "Retire these…"
+    return {
+        "type": "actions",
+        "block_id": "retire:" + ",".join(keys),
+        "elements": [{"type": "button", "action_id": RETIRE_ASK, "value": ",".join(keys), "text": {"type": "plain_text", "text": label}}],
+    }
+
+
 def decided_card(p: Proposal, note: str) -> list[dict]:
-    """The card after a click: same content, buttons replaced by who decided."""
+    """The card after a click: same content, buttons replaced by who decided (and Retire, once approved)."""
     blocks = approval_card(p)[:-1]
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
+    if p.status == "approved" and p.requirement.key:
+        blocks.append(retire_button([p.requirement.key]))
     return blocks
 
 
@@ -155,6 +169,50 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
 def decided_group_card(group_id: str, title: str, proposals: list[Proposal], note: str) -> list[dict]:
     blocks = [b for b in baseline_card(group_id, title, proposals, []) if b["type"] != "actions"]
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
+    approved = [p.requirement.key for p in proposals if p.status == "approved" and p.requirement.key]
+    if approved:
+        blocks.append(retire_button(approved))
+    return blocks
+
+
+def retire_card(group_id: str, proposals: list[Proposal], note: str = "") -> list[dict]:
+    """Asks an approver to retire requirements. `note` (who decided) replaces the buttons once clicked."""
+    n = len(proposals)
+    reason, asked_by = (proposals[0].reason, proposals[0].asked_by) if proposals else ("", "")
+    who = f"<@{asked_by}>" if asked_by.isalnum() else "Someone"
+    lines = []
+    for p in proposals:
+        r = p.requirement
+        issue = f" · issue #{r.issue_number}" if r.issue_number else ""
+        lines.append(f"• *{r.key}* {_esc(r.title)} (v{r.version}){issue}")
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":wastebasket: {who} asks to retire {n} requirement{'' if n == 1 else 's'}"
+                + (f". Reason: _{_esc(reason)}_" if reason else " (no reason given)"),
+            },
+        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Retired requirements leave the PRD and their GitHub issues are closed. Their history is kept."}],
+        },
+    ]
+    if note:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})
+        return blocks
+    blocks.append(
+        {
+            "type": "actions",
+            "block_id": f"retire_group:{group_id}",
+            "elements": [
+                {"type": "button", "style": "danger", "action_id": RETIRE_CONFIRM, "value": group_id, "text": {"type": "plain_text", "text": "Retire"}},
+                {"type": "button", "action_id": RETIRE_KEEP, "value": group_id, "text": {"type": "plain_text", "text": "Keep"}},
+            ],
+        }
+    )
     return blocks
 
 

@@ -82,11 +82,11 @@ class MemoryStore:
         self._reqs[r.key] = r.model_copy(deep=True)
 
     def replace_requirement(self, r: Requirement, expected_version: int) -> bool:
-        """Saves r only if the stored one is still at `expected_version`: of two changes approved at
-        once, the second finds the first's version and writes nothing."""
+        """Saves r only if the stored one is still approved at `expected_version`: of two changes (or a
+        change and a retire) decided at once, the second finds the first's work and writes nothing."""
         with _claims:
             old = self._reqs.get(r.key)
-            if old is None or old.version != expected_version:
+            if old is None or old.version != expected_version or old.status != "approved":
                 return False
             self.save_requirement(r)
             return True
@@ -240,13 +240,14 @@ class FirestoreStore:
         self._col("requirements").document(r.key).set(r.model_dump())
 
     def replace_requirement(self, r: Requirement, expected_version: int) -> bool:
-        """Saves r only if the stored one is still at `expected_version`, in a transaction across instances."""
+        """Saves r only if the stored one is still approved at `expected_version`, in a transaction across instances."""
         ref = self._col("requirements").document(r.key)
 
         @self._fs.transactional
         def swap(tx) -> bool:
             snap = ref.get(transaction=tx)
-            if not snap.exists or (snap.to_dict() or {}).get("version") != expected_version:
+            old = (snap.to_dict() or {}) if snap.exists else {}
+            if not snap.exists or old.get("version") != expected_version or old.get("status") != "approved":
                 return False
             tx.set(ref, r.model_dump())
             return True
