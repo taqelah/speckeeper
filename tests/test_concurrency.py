@@ -182,3 +182,26 @@ def test_N_37_approvals_in_the_same_instant_get_their_own_prd_versions():
         versions = list(pool.map(lambda p: svc.approve(p.id, "UMAYA")[1], later))
     assert sorted(versions, key=lambda v: int(v.split(".")[1])) == [f"1.{i}.0" for i in range(1, 7)]
     assert [x["version"] for x in svc.releases] == ["1.0.0"] + [f"1.{i}.0" for i in range(1, 7)]
+
+
+def test_C_32_prd_rebuilds_never_overlap_and_the_last_one_has_every_approval():
+    class OneAtATime(FakePRD):
+        busy, overlapped = threading.Lock(), False
+
+        def publish(self, reqs, releases, version, now):
+            if not self.busy.acquire(blocking=False):
+                OneAtATime.overlapped = True  # the Drive client would hang here
+                return
+            try:
+                time.sleep(0.02)
+                super().publish(reqs, releases, version, now)
+            finally:
+                self.busy.release()
+
+    prd = OneAtATime()
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(generate), prd, FakeIssues())
+    _gid, _, proposals, _ = svc.capture_meeting("C1", "1.1", DOC, fetch)
+    with ThreadPoolExecutor(2) as pool:  # "Review one by one", then Approve, Approve in quick succession
+        list(pool.map(lambda p: svc.approve(p.id, "UMAYA"), proposals))
+    assert not OneAtATime.overlapped
+    assert prd.appended == ["REQ-7", "REQ-8"]  # the last rebuild saw both

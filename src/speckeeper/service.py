@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -134,6 +135,7 @@ class SpecKeeper:
         self.issues = issues
         self.asker = asker  # the ADK agent that answers questions (agent.Asker)
         self.engine = engine  # pipelines.AdkEngine: capture and thread watch as ADK multi-agent pipelines
+        self._publishing = threading.Lock()  # one PRD rebuild at a time (see publish_prd)
 
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
@@ -338,11 +340,16 @@ class SpecKeeper:
 
     def publish_prd(self) -> bool:
         """Rebuild the PRD doc from the store. A failure is logged, not raised: the approval stands and
-        the next approval or CI run rebuilds the doc in full anyway."""
+        the next approval or CI run rebuilds the doc in full anyway.
+
+        One rebuild at a time, reading the store inside the lock. Two approvals at once used to share the
+        Drive client, which isn't thread-safe (the second hung for its 60 s timeout), and the slower one
+        could write a list read before the other's requirement was saved."""
         if not self.prd:
             return False
         try:
-            self.prd.publish(self.store.requirements(), self.releases, self.prd_version, _now())
+            with self._publishing:
+                self.prd.publish(self.store.requirements(), self.releases, self.prd_version, _now())
             return True
         except Exception:
             log.exception("Couldn't update the PRD doc")
