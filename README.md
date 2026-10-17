@@ -112,8 +112,9 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   saved with a compare-and-set, PRD versions are taken in a transaction, and the same notes are captured
   once at a time. Retiring needs an approver too. `reset demo` waits 10 minutes after someone else last
   used the demo, so it can't wipe a run in progress.
-- **CI webhook.** The secret is checked before the body is read, the body is capped at 3 MB, and results
-  are posted only in channels where requirements were captured.
+- **CI webhook.** The secret is checked before the body is read, the body is capped at 3 MB, and each
+  result is posted in the thread where its requirement was last approved, never in a channel where no
+  requirements were captured.
 - **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
   JUnit XML, parsed with `defusedxml`. Each user gets 50 Gemini requests (questions and captures) per 10
   minutes (`REQUESTS_PER_USER`), and is told privately when they can ask again; a daily token budget

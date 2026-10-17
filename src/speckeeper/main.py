@@ -183,12 +183,21 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
             changed, unmapped = svc.take_ci(run.junit_xml, run.run_id)
         except (ET.ParseError, DefusedXmlException):
             raise HTTPException(status_code=400, detail="junit_xml is not valid XML") from None
+        # Each result goes to the thread where its requirement was last approved, so whoever approved it sees
+        # it there. The run's own channel is only for a requirement with no such thread, and only if
+        # requirements were captured in it: CI can't post in a channel Spec Keeper wasn't used in.
         allowed = await asyncio.to_thread(svc.requirement_channels)
-        posted = run.channel in allowed
-        if not posted and changed:
-            audit("ci_channel_refused", "WARNING", channel=run.channel[:20])  # results are saved; only the Slack post is skipped
-        for _req, text in changed if posted else []:
-            await slack.client.chat_postMessage(channel=run.channel, text=text)
+        posted = False
+        for req, text in changed:
+            where = await asyncio.to_thread(svc.ci_thread, req.key)
+            if where:
+                await slack.client.chat_postMessage(channel=where[0], thread_ts=where[1], text=text)
+                posted = True
+            elif run.channel in allowed:
+                await slack.client.chat_postMessage(channel=run.channel, text=text)
+                posted = True
+            else:
+                audit("ci_channel_refused", "WARNING", channel=run.channel[:20], requirement=req.key)  # saved; only the post is skipped
         return {"requirements": [r.key for r, _ in changed], "unmapped": unmapped, "posted": posted}
 
     return api

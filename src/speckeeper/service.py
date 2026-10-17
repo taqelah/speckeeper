@@ -556,6 +556,12 @@ class SpecKeeper:
         version = self._release(f"{keys} retired" + (f": {reason}" if reason else ""), user_name or user)
         return done, version, skipped
 
+    def ci_thread(self, key: str) -> tuple[str, str] | None:
+        """(channel, thread) where this requirement was last approved, new or changed: where the people who
+        approved it are, and so where its CI results go."""
+        decided = [p for p in self.store.proposals_for(key) if p.status == "approved" and p.kind in ("new", "change") and p.channel and p.thread_ts]
+        return (decided[-1].channel, decided[-1].thread_ts) if decided else None
+
     def requirement_channels(self) -> set[str]:
         """Channels where requirements were captured: the only ones a CI run may post its results in."""
         return {p.channel for r in self.store.requirements() for p in self.store.proposals_for(r.key) if p.channel}
