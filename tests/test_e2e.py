@@ -1084,3 +1084,18 @@ def test_C_50_without_a_report_or_a_repo_there_is_no_link():
     assert "Watch the tests" not in app.slack.posted("chat.postMessage")[-1]["text"]
     _ci_with_report(app, "https://taqelah.github.io/checkout-app/", repo="")
     assert "Watch the tests" not in app.slack.posted("chat.postMessage")[-1]["text"]
+
+
+def test_C_54_change_and_retire_notes_link_the_prd():
+    app = App(Gemini(KICKOFF, CHANGE), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    app.prd.doc_id = "PRD1"
+    prd = "https://docs.google.com/document/d/PRD1/edit"
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    change = app.last_card()
+    app.click("approve_proposal", app.button(change, "approve_proposal"), change)
+    assert f"*REQ-7 is now v2*, <{prd}|PRD v1.1.0>." in app.slack.posted("chat.update")[-1]["text"]
+    app.mention("retire REQ-8", ts="300.1")
+    card = _retire_card(app)
+    app.click("retire_confirm", app.button(card, "retire_confirm"), card)
+    assert f"PRD is now <{prd}|v1.2.0>." in app.slack.posted("chat.update")[-1]["text"]

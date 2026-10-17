@@ -590,7 +590,7 @@ def build_slack_app(
         audit("approved", user=user, requirements=r.key, version=r.version, kind=p.kind, prd_version=version)
         if p.kind == "change":
             outdated = [a.key for a in r.acs if a.ci_status == "stale"]
-            note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, PRD v{version}."
+            note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, {prd_link(f'PRD v{version}')}."
             if r.issue_number:
                 note += f" Issue {issue_link(r.issue_number)} updated."
             if outdated:
@@ -680,7 +680,7 @@ def build_slack_app(
             keys = ", ".join(p.target for p in done)
             audit("retired", user=user, requirements=keys, prd_version=version)
             closed = [p.requirement.issue_number for p in done if p.requirement.issue_number]
-            note = f":wastebasket: Retired by <@{user}>: *{keys}*. PRD is now v{version}." + (
+            note = f":wastebasket: Retired by <@{user}>: *{keys}*. PRD is now {prd_link(f'v{version}')}." + (
                 f" Closed {', '.join(issue_link(n) for n in closed)}." if closed else ""
             )
         else:
