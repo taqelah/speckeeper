@@ -7,6 +7,7 @@ import json
 import re
 
 from .models import Proposal, Requirement
+from .prd import meeting_label, source_parts
 
 APPROVE, EDIT, DISMISS = "approve_proposal", "edit_proposal", "dismiss_proposal"
 APPROVE_ALL, REVIEW_EACH, DISMISS_ALL = "approve_group", "review_group", "dismiss_group"
@@ -78,9 +79,11 @@ def _source(s) -> str:
 
 
 def _sources(req: Requirement) -> str:
-    seen: list[str] = []
-    for s in req.sources:  # notes often repeat a decision; cite each place once
-        if (t := _source(s)) not in seen:
+    """Each meeting once with its times, "Kickoff · Oct 14, 2026 (00:06:45, 00:15:05)", then each message once."""
+    meetings = req.model_copy(update={"sources": [s for s in req.sources if s.kind == "meeting"]})
+    seen = [(f"<{link}|{_label(title)}>" if link else _esc(title)) + times for title, times, link in source_parts(meetings)]
+    for s in req.sources:
+        if s.kind != "meeting" and (t := _source(s)) not in seen:
             seen.append(t)
     return "Source: " + ", ".join(seen)
 
@@ -117,11 +120,14 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
     lines = []
     for p in proposals:
         req = p.requirement
-        times = sorted({s.label.split(", ")[-1] for s in req.sources if s.kind == "meeting" and ", " in s.label})
+        times = sorted({t for s in req.sources if s.kind == "meeting" and (t := meeting_label(s.label)[1])})
         when = f" _({', '.join(times)})_" if times else ""
         lines.append(f"• *{_esc(req.title)}* · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"From *{_esc(title)}* I captured {len(proposals)} agreed requirements:"}},
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"From *{_esc(title)}* I captured {len(proposals)} agreed requirement{'' if len(proposals) == 1 else 's'}:"},
+        },
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines) or "_Nothing left to review._"}},
     ]
     if questions:
@@ -194,7 +200,7 @@ def change_card(p: Proposal, old: Requirement | None, decided: str = "") -> dict
     new = p.requirement
     if old is None:
         return {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": f"This changes {p.target}, which no longer exists."}}], "attachments": []}
-    origin = _esc(next((s.label.split(", ")[0] for s in old.sources if s.kind == "meeting"), ""))
+    origin = _esc(next((meeting_label(s.label)[0] for s in old.sources if s.kind == "meeting"), ""))
     head = f":warning: *Change to {old.key}* (v{old.version}" + (f", from {origin}" if origin else "") + f"): {_esc(old.title)} → *{_esc(new.title)}*"
     removed, added, changed = [], [], set()
     for i in range(max(len(old.acs), len(new.acs))):

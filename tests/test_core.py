@@ -156,3 +156,25 @@ def test_file_store_survives_a_restart(tmp_path):
     again = SpecKeeper(FileStore(str(path)), FakeEngine(lambda p, s: EXTRACTION))  # a new process reads the file
     assert again.store.get_requirement("REQ-7").title == "File upload size limit is 25 MB"
     assert again.prd_version == "1.0.0" and again.store.next_req_number() == 8
+
+
+def test_C_34_a_notes_title_with_a_date_shows_each_meeting_once_with_its_times():
+    from speckeeper.cards import _sources, baseline_card, change_card
+    from speckeeper.models import Proposal, Requirement, Source
+
+    doc = "https://docs.google.com/document/d/D/edit"
+    title = "Checkout v2 kickoff · Meeting notes · Oct 14, 2026"
+    req = Requirement(
+        key="REQ-9",
+        title="Interrupted uploads resume for up to 24 hours",
+        sources=[
+            Source(kind="meeting", ts="n1", user="", text="Decisions", label=title, permalink=doc),  # the summary: no time
+            Source(kind="meeting", ts="n2", user="", text="Resume", label=f"{title}, 00:11:20", permalink=doc),
+        ],
+    )
+    assert _sources(req) == f"Source: <{doc}|{title}> (00:11:20)"
+    p = Proposal(id="p1", requirement=req, channel="C1", thread_ts="1.1")
+    lines = baseline_card("g1", title, [p], [])[1]["text"]["text"]
+    assert "_(00:11:20)_" in lines and "2026)" not in lines
+    head = change_card(p, req)["blocks"][0]["text"]["text"]
+    assert f"from {title})" in head
