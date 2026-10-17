@@ -108,6 +108,12 @@ def landing(s: Settings, status: str = "") -> str:
             else " post <code>@Spec Keeper</code> with the pinned kickoff notes link."
         ),
         limit=f"Each person can make {s.requests_per_user} requests every {minutes} minutes",
+        limit_detail=(
+            f"Questions and captures use Gemini, so each person gets {s.requests_per_user} every {minutes} minutes; "
+            "approving, dismissing and retiring don’t count. Go over and Spec Keeper tells you, and only you, "
+            "the time you can ask again. If Gemini itself is busy, it says so: try again in a minute or two. "
+            "A daily AI budget shared by everyone pauses it until the next day (UTC) if it runs out. Nothing is lost either way."
+        ),
         prd=q(f"https://docs.google.com/document/d/{s.prd_doc_id}/edit" if s.prd_doc_id else repo),
         issues=q(f"https://github.com/{s.github_repo}/issues?q=label%3Arequirement" if s.github_repo else repo),
         ci=q(f"https://github.com/{s.github_repo}/actions" if s.github_repo else repo),
