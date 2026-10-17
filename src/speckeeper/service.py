@@ -39,6 +39,18 @@ class OutdatedChange(Exception):
         self.target, self.base, self.current = target, base, current
 
 
+class RequirementRetired(OutdatedChange):
+    """A change card for a requirement that was retired since: applying it would bring it back."""
+
+    def __init__(self, target: str, version: int) -> None:
+        Exception.__init__(self, f"{target} was retired")
+        self.target, self.base, self.current = target, version, version
+
+
+class RetireRefused(ValueError):
+    """A retire that can't be asked for; the message says why, for the person who asked."""
+
+
 class CaptureInProgress(Exception):
     """Someone else is capturing the same notes right now."""
 
@@ -436,12 +448,16 @@ class SpecKeeper:
         old = self.store.get_requirement(p.target)
         if old is None:
             return None
+        if old.status != "approved":
+            raise RequirementRetired(p.target, old.version)
         if p.base_version and old.version != p.base_version:
             raise OutdatedChange(p.target, p.base_version, old.version)  # REQ-7 moved on since this card was made
         req, stale = apply_change(old, p.requirement)
         # Saved before GitHub hears of it: of two changes approved at once, only one gets here.
         if not self.store.replace_requirement(req, old.version):
             now = self.store.get_requirement(p.target)
+            if now and now.status != "approved":
+                raise RequirementRetired(p.target, now.version)
             raise OutdatedChange(p.target, old.version, now.version if now else old.version)
         if self.issues and req.issue_number:
             try:
@@ -467,6 +483,73 @@ class SpecKeeper:
         self.store.save_proposal(p)
         return p
 
+    # --- retire: take an approved requirement out (wrong notes, dropped scope), keeping its history ---
+
+    def request_retire(self, keys: list[str], reason: str, channel: str, thread_ts: str, asked_by: str = "") -> list[Proposal]:
+        """One card asking to retire these requirements. Nothing changes until an approver confirms it."""
+        keys = list(dict.fromkeys(k.upper() for k in keys))
+        if not keys:
+            raise RetireRefused("Say which requirement, for example `retire REQ-12 wrong notes`.")
+        reqs = []
+        for key in keys:
+            r = self.store.get_requirement(key)
+            if r is None or r.status not in ("approved", "retired"):
+                raise RetireRefused(f"{key} isn't an approved requirement.")
+            if r.status == "retired":
+                raise RetireRefused(f"{key} is already retired.")
+            if any(p.kind == "retire" and p.status in ("pending", "deciding") for p in self.store.proposals_for(key)):
+                raise RetireRefused(f"Retiring {key} is already waiting for an approver; see the card asking for it.")
+            reqs.append(r)
+        group_id, now = "r" + uuid.uuid4().hex[:11], _now()
+        proposals = []
+        for seq, r in enumerate(reqs):
+            p = Proposal(
+                id=uuid.uuid4().hex[:12],
+                kind="retire",
+                target=r.key,
+                base_version=r.version,
+                reason=reason.strip()[:300],
+                asked_by=asked_by,
+                requirement=r,
+                channel=channel,
+                thread_ts=thread_ts,
+                group_id=group_id,
+                created_at=now,
+                seq=seq,
+            )
+            self.store.save_proposal(p)
+            proposals.append(p)
+        return proposals
+
+    def retire_group(self, group_id: str, user: str, user_name: str = "") -> tuple[list[Proposal], str, list[str]]:
+        """Retire what a card asked for. Returns (retired, PRD version, keys skipped because they changed or
+        were retired since the card was posted)."""
+        done, skipped = [], []
+        for p in self.store.proposals_in_group(group_id):
+            if p.kind != "retire" or not self.store.claim_proposal(p.id):
+                continue
+            r = self.store.get_requirement(p.target)
+            retired = r.model_copy(update={"status": "retired"}) if r else None
+            if r is None or r.version != p.base_version or not self.store.replace_requirement(retired, r.version):
+                p.status, p.decided_by, p.decided_at = "dismissed", OUTDATED, _now()
+                self.store.save_proposal(p)
+                skipped.append(p.target)
+                continue
+            if self.issues and r.issue_number:
+                try:
+                    why = f": {p.reason}" if p.reason else ""
+                    self.issues.close(r.issue_number, f"Retired after approval in Slack by {user_name or user}{why}. Spec Keeper no longer tracks it.")
+                except Exception:
+                    log.exception("couldn't close issue %s", r.issue_number)  # retired all the same; the issue can be closed by hand
+            p.requirement, p.status, p.decided_by, p.decided_at = retired, "approved", user, _now()
+            self.store.save_proposal(p)
+            done.append(p)
+        if not done:
+            return [], self.prd_version, skipped
+        keys, reason = ", ".join(p.target for p in done), done[0].reason
+        version = self._release(f"{keys} retired" + (f": {reason}" if reason else ""), user_name or user)
+        return done, version, skipped
+
     def requirement_channels(self) -> set[str]:
         """Channels where requirements were captured: the only ones a CI run may post its results in."""
         return {p.channel for r in self.store.requirements() for p in self.store.proposals_for(r.key) if p.channel}
@@ -474,7 +557,8 @@ class SpecKeeper:
     def take_ci(self, junit_xml: str, run_id: str) -> tuple[list[tuple[Requirement, str]], list[str]]:
         """Apply a CI run. Returns (requirement, Slack summary) per requirement touched, and unmapped tests."""
         results = ci.parse_junit(junit_xml)
-        changed, unmapped = ci.apply_results(self.store.requirements(), results, run_id)
+        live = [r for r in self.store.requirements() if r.status == "approved"]  # a retired requirement's tests are ignored
+        changed, unmapped = ci.apply_results(live, results, run_id)
         out = []
         for req in changed:
             self.store.save_requirement(req)

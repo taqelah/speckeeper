@@ -26,7 +26,8 @@ Vertex AI and the Agent Development Kit.
 | **3. Verify in CI** | (automatic) | Tests named after a criterion (`AC-7-1@v1 shows the 25 MB limit`) report from GitHub Actions; Spec Keeper posts each criterion as passing or failing, and the requirement as verified only when all pass |
 | **4. Catch a change** | `@Spec Keeper capture this` on a thread like "let's cap uploads at 10 MB" | Recognises that this changes REQ-7, shows the old and new criteria as a diff with both sources, and warns which tests are now **stale**. Approve makes REQ-7 v2 (PRD v1.1.0), never a second, contradicting requirement |
 | **5. Stale, not green** | (automatic) | The next CI run still passes the old 25 MB test, and Spec Keeper reports it as stale, not verified, until the test is updated to `@v2` |
-| **6. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation. If the requirement changed since you last asked, it says so first |
+| **6. Retire a mistake** | `@Spec Keeper retire REQ-12 wrong notes`, or **Retire…** on an approved card | Asks an approver to confirm. A retired requirement leaves the PRD and CI and its GitHub issue is closed; its history and REQ number are kept, so "what happened to REQ-12?" still has an answer |
+| **7. Ask why** | `@Spec Keeper why is the upload limit 10 MB?` | An ADK agent looks up the requirement, its change history and CI status, and answers with who decided, when, and links to the conversation. If the requirement changed since you last asked, it says so first |
 
 ## How it works
 

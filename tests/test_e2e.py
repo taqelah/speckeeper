@@ -883,3 +883,94 @@ def test_C_36_a_doc_recorded_empty_before_this_fix_is_a_first_capture_once_fille
     app.svc.store.set_meta(f"dochash:{DOC}", "old")
     app.mention(f"capture {LINK}")
     assert "approve_group" in json.dumps(app.last_card()["blocks"]) and len(gemini.prompts) == 1
+
+
+# --- retire ---------------------------------------------------------------------------------------
+
+
+def _retire_card(app: App) -> dict:
+    msg = next(m for m in reversed(app.slack.posted("chat.postMessage")) if "retire_confirm" in json.dumps(m))
+    return {"ts": "77.1", "blocks": msg["blocks"]}
+
+
+def test_E2E_12_retire_by_mention_asks_then_an_approver_retires():
+    gemini = Gemini(KICKOFF)
+    app = App(gemini)
+    kickoff_approved(app)
+    app.mention("retire REQ-7, wrong notes", ts="300.1", thread_ts="300.1")
+    assert len(gemini.prompts) == 1  # the kickoff only: retire calls no model
+    card = _retire_card(app)
+    text = json.dumps(card["blocks"])
+    assert "<@UMAYA> asks to retire 1 requirement" in text and "wrong notes" in text and "REQ-7" in text
+    assert app.svc.store.get_requirement("REQ-7").status == "approved"  # asked, not done
+    app.click("retire_confirm", app.button(card, "retire_confirm"), card)
+    final = app.slack.posted("chat.update")[-1]
+    assert "Retired by <@UMAYA>: *REQ-7*. PRD is now v1.1.0" in final["text"] and "retire_confirm" not in json.dumps(final)
+    assert app.svc.store.get_requirement("REQ-7").status == "retired" and app.prd.appended == ["REQ-8"]
+
+
+def test_E2E_13_the_approved_card_offers_retire_in_its_thread():
+    app = App()
+    kickoff_approved(app)
+    done = app.slack.posted("chat.update")[-1]
+    assert "Retire these…" in json.dumps(done["blocks"], ensure_ascii=False)
+    card = {"ts": done["ts"], "thread_ts": "100.1", "blocks": done["blocks"]}
+    app.click("retire_ask", app.button(card, "retire_ask"), card)
+    asked = app.slack.posted("chat.postMessage")[-1]
+    assert asked["thread_ts"] == "100.1" and "asks to retire 2 requirements" in json.dumps(asked["blocks"])
+
+
+def test_N_44_keep_changes_nothing_and_only_approvers_decide():
+    from dataclasses import replace
+
+    from speckeeper.main import create_app
+
+    app = App()
+    kickoff_approved(app)
+    app.mention("retire REQ-8", ts="300.1")
+    card = _retire_card(app)
+    app.http = TestClient(create_app(replace(settings(), approvers=("UBOSS",)), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True))
+    app.click("retire_confirm", app.button(card, "retire_confirm"), card)
+    assert app.svc.store.get_requirement("REQ-8").status == "approved"
+    assert "<@UBOSS>" in app.slack.posted("chat.postEphemeral")[-1]["text"]
+    app.http = TestClient(create_app(settings(), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True))
+    app.click("retire_keep", app.button(card, "retire_keep"), card)
+    assert "Kept by <@UMAYA>. Nothing was changed." in app.slack.posted("chat.update")[-1]["text"]
+    assert app.svc.store.get_requirement("REQ-8").status == "approved" and app.prd.appended == ["REQ-7", "REQ-8"]
+
+
+def test_N_45_retiring_what_isnt_approved_gets_a_private_reply():
+    app = App()
+    kickoff_approved(app)
+    app.mention("retire REQ-99", ts="300.1")
+    app.mention("retire please", ts="301.1")
+    replies = [m["text"] for m in app.slack.posted("chat.postEphemeral")]
+    assert replies == ["REQ-99 isn't an approved requirement.", "Say which requirement, for example `retire REQ-12 wrong notes`."]
+    assert not any("retire_confirm" in json.dumps(m) for m in app.slack.posted("chat.postMessage"))
+
+
+def test_C_41_a_reason_from_slack_cannot_ping_or_link():
+    app = App()
+    kickoff_approved(app)
+    app.mention("retire REQ-7 <!channel> see <https://evil.test|this>", ts="300.1")
+    text = json.dumps(_retire_card(app)["blocks"])
+    assert "<!channel>" not in text and "<https://evil.test" not in text
+
+
+def test_C_42_approving_a_change_to_a_retired_requirement_says_so():
+    app = App(Gemini(KICKOFF, CHANGE), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    change = app.last_card()
+    app.mention("retire REQ-7", ts="300.1")
+    retire = _retire_card(app)
+    app.click("retire_confirm", app.button(retire, "retire_confirm"), retire)
+    app.click("approve_proposal", app.button(change, "approve_proposal"), change)
+    assert "REQ-7 was retired" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.svc.store.get_requirement("REQ-7").status == "retired"
+
+
+def test_C_43_help_mentions_retire():
+    app = App()
+    app.mention("hello")
+    assert "retire REQ-12" in app.slack.posted("chat.postMessage")[-1]["text"]

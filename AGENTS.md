@@ -86,13 +86,15 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
 ## Data model
 
 - **Requirement** `REQ-n`: title, `version`, status (`proposed`, `approved`, `dismissed`,
-  `superseded`), acceptance criteria, sources, `issue_number`.
+  `superseded`, `retired`), acceptance criteria, sources, `issue_number`. Only `approved` ones are in
+  the PRD, the capture prompt and CI; a `retired` one keeps its history.
 - **AcceptanceCriterion** `AC-n-i`: Gherkin text, `version`, `ci_status` (`none`, `passing`,
   `failing`, `stale`), the last test that reported on it.
 - **Source**: a Slack message (`kind="slack"`, user, ts, permalink, label "Name, Oct 15 16:02") or a
   meeting passage (`kind="meeting"`, label "Checkout v2 kickoff, 00:06:45", link to the doc).
-- **Proposal**: what a card asks to approve. `kind` is `new` or `change` (`target` = the requirement
-  it changes); `group_id` ties a meeting's proposals together; `previous` keeps the requirement as it
+- **Proposal**: what a card asks to approve. `kind` is `new`, `change` or `retire` (`target` = the
+  requirement it changes or retires, `base_version` = its version when asked, `reason` and `asked_by`
+  for a retire); `group_id` ties a meeting's proposals (or one retire card's) together; `previous` keeps the requirement as it
   was before an approved change; `decided_by` and `decided_at` record the approval.
 - **Meta**: `prd_version` (v1.0.0 = the first meeting's baseline, every later approval a minor
   version), `baseline_group`, `doc:<id>` (notes already captured).
@@ -114,6 +116,9 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
    changed since the person last asked (Memory Bank).
 5. **Reset:** `@Spec Keeper reset demo` in a `DEMO_CHANNELS` channel clears the demo, unless someone
    else used it in the last 10 minutes.
+6. **Retire:** `@Spec Keeper retire REQ-12 wrong notes`, or **Retire…** on an approved card → a card
+   anyone can ask for → an approver clicks Retire → status `retired`, issue closed, out of the PRD
+   (a minor version) and CI; history and the REQ number are kept. Keep dismisses the ask.
 
 Slack acks every request within 3 seconds; handlers do the slow work after. On Cloud Run this
 needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instance).
@@ -124,7 +129,7 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted
   model, no network), `test_pipelines.py` (the capture and thread-watch pipelines), `test_watch.py`
   (thread watch, W-), `test_memory.py` (Memory Bank), `test_remote.py` (Agent Engine and its fallback),
-  `test_security.py` (security fixes, N-12 on), `test_concurrency.py` (two people at once: changes against an older
+  `test_security.py` (security fixes, N-12 on), `test_retire.py` (retiring approved requirements), `test_concurrency.py` (two people at once: changes against an older
   version, the same notes captured twice, PRD versions), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
   `test_analytics.py`, `test_tracing.py`, `test_web.py`, `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
