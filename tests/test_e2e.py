@@ -501,7 +501,7 @@ def test_C_05_a_failing_test_marks_its_criterion_failing_and_the_requirement_unv
     kickoff_approved(app)
     app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", False)))
     last = app.slack.posted("chat.postMessage")[-1]["text"]
-    assert "AC-7-1 failing" in last and "not verified" in last
+    assert ":x: AC-7-1 fails:" in last and "not verified" in last and last.startswith(":x:")
 
 
 def test_C_06_a_ci_run_that_maps_to_no_requirement_posts_nothing():
@@ -1052,7 +1052,7 @@ def test_C_49_ci_results_link_the_test_videos_on_the_product_repo_s_pages():
     kickoff_approved(app)
     _ci_with_report(app, "https://taqelah.github.io/checkout-app/")
     text = app.slack.posted("chat.postMessage")[-1]["text"]
-    assert text.endswith("\n<https://taqelah.github.io/checkout-app/|▶ Watch the tests>") and "REQ-7 is verified" in text
+    assert "<https://taqelah.github.io/checkout-app/|▶ Watch the tests>" in text.splitlines()[-1] and "REQ-7 is verified" in text
     assert "Watch the tests" not in app.issues.comments[-1][1]  # Slack only; the issue comment stays as it was
 
 
@@ -1099,3 +1099,75 @@ def test_C_54_change_and_retire_notes_link_the_prd():
     card = _retire_card(app)
     app.click("retire_confirm", app.button(card, "retire_confirm"), card)
     assert f"PRD is now <{prd}|v1.2.0>." in app.slack.posted("chat.update")[-1]["text"]
+
+
+def _ci_links(app: App, **links):
+    from dataclasses import replace
+
+    from speckeeper.main import create_app
+
+    app.http = TestClient(
+        create_app(replace(settings(), github_repo="taqelah/checkout-app"), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True)
+    )
+    body = {"run_id": "#79 on main (98e14f1)", "channel": "C1", "junit_xml": junit(("AC-7-1@v1 rejects a 30 MB file", True)), **links}
+    app.http.post("/ci", json=body, headers={"X-SpecKeeper-Secret": CI})
+    return app.slack.posted("chat.postMessage")[-1]["text"]
+
+
+def test_C_60_a_ci_result_leads_with_the_verdict_and_links_the_run_the_pr_the_videos_and_the_issue():
+    app = App()
+    kickoff_approved(app)
+    text = _ci_links(
+        app,
+        run_url="https://github.com/taqelah/checkout-app/actions/runs/39022805316",
+        pr_url="https://github.com/taqelah/checkout-app/pull/71",
+        report_url="https://taqelah.github.io/checkout-app/",
+    )
+    lines = text.splitlines()
+    assert lines[0] == ":white_check_mark: *REQ-7 is verified* (v1): Receipt uploads are limited to 25 MB"
+    assert lines[1] == ":white_check_mark: AC-7-1 passes: `AC-7-1@v1 rejects a 30 MB file`"
+    assert lines[-1] == (
+        "<https://github.com/taqelah/checkout-app/actions/runs/39022805316|CI run #79 on main (98e14f1)>"
+        " · from <https://github.com/taqelah/checkout-app/pull/71|PR #71>"
+        " · <https://taqelah.github.io/checkout-app/|▶ Watch the tests>"
+        " · <https://github.com/taqelah/checkout-app/issues/1|Issue #1>"
+    )
+
+
+def test_C_61_a_stale_criterion_says_which_version_the_test_proves_and_what_to_do():
+    app = App(Gemini(KICKOFF, CHANGE), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    change = app.last_card()
+    app.click("approve_proposal", app.button(change, "approve_proposal"), change)
+    text = _ci_links(app)
+    assert text.startswith(":warning: *REQ-7 is not verified yet* (v2)")
+    assert ":warning: AC-7-1 stale: `AC-7-1@v1 rejects a 30 MB file` proves v1; rename it @v2 once it checks v2" in text
+    assert text.splitlines()[-1].startswith("CI run #79 on main (98e14f1)")  # no run link given: plain text
+
+
+@pytest.mark.parametrize(
+    "links",
+    [
+        {"run_url": "https://github.com/someone/else/actions/runs/1"},
+        {"run_url": "https://evil.test/taqelah/checkout-app/actions/runs/1"},
+        {"pr_url": "https://github.com/taqelah/checkout-app/issues/5"},
+        {"pr_url": "https://github.com/taqelah/checkout-app/pull/5|click"},
+        {"run_url": "https://github.com/taqelah/checkout-app/actions/runs/1><!channel>"},
+    ],
+)
+def test_N_57_run_and_pr_links_anywhere_else_are_dropped(links, capsys):
+    app = App()
+    kickoff_approved(app)
+    text = _ci_links(app, **links)
+    assert "evil" not in text and "someone" not in text and "<!channel>" not in text and "PR #" not in text
+    assert "REQ-7 is verified" in text and '"ci_report_url_refused"' in capsys.readouterr().out
+
+
+def test_C_62_a_test_name_from_ci_cannot_break_out_of_its_code_span_or_ping():
+    app = App()
+    kickoff_approved(app)
+    junit_xml = '<testsuites><testsuite><testcase name="AC-7-1@v1 rejects ` &lt;!channel&gt; a 30 MB file"/></testsuite></testsuites>'
+    app.http.post("/ci", json={"run_id": "#80", "channel": "C1", "junit_xml": junit_xml}, headers={"X-SpecKeeper-Secret": CI})
+    text = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert "<!channel>" not in text and text.splitlines()[1].count("`") == 2

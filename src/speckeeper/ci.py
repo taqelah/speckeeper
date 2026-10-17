@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from defusedxml.ElementTree import fromstring  # no entity expansion or external entities
 
-from .cards import _esc
+from .cards import _esc, _label
 from .models import Requirement
 
 KEY = re.compile(r"\b(AC-\d+-\d+)(?:@v(\d+))?\b")
@@ -83,13 +83,56 @@ def summary(req: Requirement, run_id: str) -> str:
     return "\n".join(lines)
 
 
-def report_link(url: str, repo: str) -> str:
-    """A Slack line linking the run's Playwright report (test videos), or "" unless `url` is on the product
-    repo's own GitHub Pages site: a forged CI post can't put a link of its choosing in front of people."""
+def report_ok(url: str, repo: str) -> bool:
+    """`url` is on the product repo's own GitHub Pages site (the Playwright report with test videos): a
+    forged CI post can't put a link of its choosing in front of people."""
     if not repo or "/" not in repo:
-        return ""
+        return False
     owner, name = repo.split("/", 1)
     site = f"https://{owner.lower()}.github.io/{name}/"
-    if not url.startswith(site) or len(url) > 300 or not re.fullmatch(r"[A-Za-z0-9._~/#?=&%:-]+", url):
-        return ""
-    return f"\n<{url}|▶ Watch the tests>"
+    return url.startswith(site) and len(url) <= 300 and bool(re.fullmatch(r"[A-Za-z0-9._~/#?=&%:-]+", url))
+
+
+def github_ok(url: str, repo: str, kind: str) -> bool:
+    """`url` is this repo's Actions run (`run`) or pull request (`pull`) on github.com, nothing else."""
+    if not repo or "/" not in repo:
+        return False
+    tail = r"actions/runs/\d+(/attempts/\d+)?" if kind == "run" else r"pull/\d+"
+    return bool(re.fullmatch(rf"https://github\.com/{re.escape(repo)}/{tail}", url))
+
+
+def report_link(url: str, repo: str) -> str:
+    return f"\n<{url}|▶ Watch the tests>" if report_ok(url, repo) else ""
+
+
+def _test(name: str) -> str:
+    return "`" + _esc(name).replace("`", "'") + "`"
+
+
+def slack_summary(req: Requirement, run_id: str, repo: str = "", run_url: str = "", pr_url: str = "", report_url: str = "") -> str:
+    """The CI result as Slack shows it: the verdict first, a line per criterion in plain words, then links to
+    the run, the PR it came from, the test videos and the issue. Links are used only if they point at the
+    product repo (see report_ok, github_ok); CI's text is escaped, so it can't ping or link."""
+    failing = any(ac.ci_status == "failing" for ac in req.acs)
+    icon = ":white_check_mark:" if req.verified else ":x:" if failing else ":warning:"
+    verdict = f"*{req.key} is verified*" if req.verified else f"*{req.key} is not verified yet*"
+    lines = [f"{icon} {verdict} (v{req.version}): {_esc(req.title)}"]
+    for ac in req.acs:
+        test = _test(ac.last_test) if ac.last_test else ""
+        if ac.ci_status == "passing":
+            lines.append(f":white_check_mark: {ac.key} passes: {test}")
+        elif ac.ci_status == "failing":
+            lines.append(f":x: {ac.key} fails: {test}")
+        elif ac.ci_status == "stale":
+            m = re.search(r"@v(\d+)", ac.last_test)
+            lines.append(f":warning: {ac.key} stale: {test} proves v{m.group(1) if m else '1'}; rename it @v{ac.version} once it checks v{ac.version}")
+        else:
+            lines.append(f":grey_question: {ac.key}: no test yet")
+    footer = [f"<{run_url}|{_label('CI run ' + run_id)}>" if github_ok(run_url, repo, "run") else f"CI run {_esc(run_id)}"]
+    if github_ok(pr_url, repo, "pull"):
+        footer.append(f"from <{pr_url}|PR #{pr_url.rsplit('/', 1)[1]}>")
+    if report_ok(report_url, repo):
+        footer.append(f"<{report_url}|▶ Watch the tests>")
+    if repo and req.issue_number:
+        footer.append(f"<https://github.com/{repo}/issues/{req.issue_number}|Issue #{req.issue_number}>")
+    return "\n".join(lines + [" · ".join(footer)])

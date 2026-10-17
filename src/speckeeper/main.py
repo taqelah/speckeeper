@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
 from .audit import audit
-from .ci import report_link
+from .ci import github_ok, report_ok, slack_summary
 from .config import Settings
 from .service import SpecKeeper
 from .slack_app import build_slack_app
@@ -34,6 +34,8 @@ class CiRun(BaseModel):
     channel: str
     junit_xml: str
     report_url: str = ""  # the run's Playwright report with test videos, on the product repo's GitHub Pages
+    run_url: str = ""  # the run on GitHub Actions
+    pr_url: str = ""  # the pull request the commit came from, when it came from one
 
 
 def build_service(s: Settings) -> SpecKeeper:
@@ -191,12 +193,17 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         # it there. The run's own channel is only for a requirement with no such thread, and only if
         # requirements were captured in it: CI can't post in a channel Spec Keeper wasn't used in.
         allowed = await asyncio.to_thread(svc.requirement_channels)
-        watch = report_link(run.report_url, s.github_repo)
-        if run.report_url and not watch:
-            audit("ci_report_url_refused", "WARNING")  # results still posted, without the link
+        repo = s.github_repo
+        for given, ok in (
+            (run.report_url, report_ok(run.report_url, repo)),
+            (run.run_url, github_ok(run.run_url, repo, "run")),
+            (run.pr_url, github_ok(run.pr_url, repo, "pull")),
+        ):
+            if given and not ok:
+                audit("ci_report_url_refused", "WARNING")  # results still posted, without that link
         posted = False
-        for req, text in changed:
-            text += watch
+        for req, _issue_text in changed:
+            text = slack_summary(req, run.run_id, repo, run.run_url, run.pr_url, run.report_url)
             where = await asyncio.to_thread(svc.ci_thread, req.key)
             if where:
                 await slack.client.chat_postMessage(channel=where[0], thread_ts=where[1], text=text)
