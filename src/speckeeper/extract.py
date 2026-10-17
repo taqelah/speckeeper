@@ -6,6 +6,7 @@ really in the discussion is dropped. A card with fewer, correct items beats one 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
@@ -26,6 +27,10 @@ class ExtractedRequirement(BaseModel):
     changes: str = Field(
         default="",
         description="Key of the approved requirement this one changes or contradicts (e.g. REQ-7), or empty if it is new",
+    )
+    key: str = Field(
+        default="",
+        description="The ID the discussion itself gives this requirement (e.g. REQ-7 in an existing spec), or empty. Never make one up",
     )
 
 
@@ -51,7 +56,8 @@ Rules:
   using the exact numbers from the discussion. If the discussion already states a requirement's acceptance
   criteria (listed under it, or as Given / When / Then lines), use exactly those, as written and in the
   same order, one criterion each: existing tests are named after them.
-- List requirements in the order the discussion first states them.
+- List requirements in the order the discussion first states them. If the discussion gives a requirement an ID
+  (an existing spec's "REQ-7"), put it in `key`; otherwise leave `key` empty.
 - source_ts lists the ts of the messages where it was stated or agreed. Never cite a ts that is not below.
 - Nothing about the product that is not in the discussion.
 - If a requirement changes, replaces or contradicts one of the approved requirements below (a new limit,
@@ -103,6 +109,18 @@ def cited(raw: Extraction, allowed_ts: set[str]) -> Extraction:
     return Extraction(requirements=keep, open_questions=raw.open_questions)
 
 
+STATED_KEY = re.compile(r"REQ-\d{1,5}")
+
+
+def stated_key(key: str, sources: list[Source], approved: set[str]) -> str:
+    """The ID a document gives a requirement, kept only if it is really in a passage the requirement cites
+    (no citation, no ID: Gemini can't invent one) and isn't an approved requirement's already."""
+    key = key.strip().upper()
+    if not STATED_KEY.fullmatch(key) or key in approved:
+        return ""
+    return key if any(re.search(rf"\b{key}\b", s.text, re.IGNORECASE) for s in sources) else ""
+
+
 def to_requirements(raw: Extraction, messages: list[Source], approved: list[Requirement]) -> tuple[list[tuple[Requirement, str]], list[str]]:
     by_ts = {m.ts: m for m in messages}
     keys = {r.key for r in approved}
@@ -111,7 +129,7 @@ def to_requirements(raw: Extraction, messages: list[Source], approved: list[Requ
         sources = [by_ts[ts] for ts in item.source_ts if ts in by_ts]
         acs = [AcceptanceCriterion(key="", gherkin=f"Given {a.given}\nWhen {a.when}\nThen {a.then}") for a in item.acceptance_criteria]
         changes = item.changes.strip().upper() if item.changes.strip().upper() in keys else ""
-        reqs.append((Requirement(key="", title=item.title.strip(), acs=acs, sources=sources), changes))
+        reqs.append((Requirement(key=stated_key(item.key, sources, keys), title=item.title.strip(), acs=acs, sources=sources), changes))
     return reqs, raw.open_questions
 
 

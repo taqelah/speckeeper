@@ -523,8 +523,9 @@ class SpecKeeper:
             self.store.save_proposal(p)
 
     def _approve_new(self, p: Proposal, user: str) -> Proposal:
-        n = self.store.next_req_number()
         req = p.requirement
+        wanted = int(req.key.split("-")[1]) if re.fullmatch(r"REQ-\d{1,5}", req.key) else None  # an ID the document gave it
+        n = self.store.claim_req_number(wanted)
         req.key, req.status = f"REQ-{n}", "approved"
         req.initiative = p.initiative = self._initiative_for(p.group_id)
         for i, ac in enumerate(req.acs, 1):

@@ -288,3 +288,80 @@ def test_C_57_prd_without_a_link_says_how_to_start_one():
     app = slack_app()
     app.mention("prd", ts="300.1")
     assert "No initiative PRD linked yet" in app.slack.posted("chat.postMessage")[-1]["text"]
+
+
+# --- an existing spec's own IDs ---------------------------------------------------------------------
+
+SPEC_DOC = "1-CurrentProductSpecDocId00000000000000000000"
+SPEC_TEXT = """Checkout · Current product
+REQ-21 Receipt upload limit: receipt files are limited to 25 MB.
+AC-21-1 Given the user is on the upload screen, When the screen opens, Then "Files up to 25 MB." is shown.
+REQ-22 Signing in: Checkout is only for signed-in users.
+AC-22-1 Given the user is signed out, When they open Checkout, Then they are taken to the sign-in page.
+"""
+
+
+def spec_gemini(stated=("REQ-21", "REQ-22")):
+    def answer(prompt, schema):
+        if "Resumable uploads" in prompt:
+            return gemini(prompt, schema)
+        return {
+            "requirements": [
+                {
+                    "title": "Receipt uploads are limited to 25 MB",
+                    "acceptance_criteria": [{"given": "the user is on the upload screen", "when": "the screen opens", "then": '"Files up to 25 MB." is shown'}],
+                    "source_ts": cites(prompt, "REQ-21"),
+                    "key": stated[0],
+                },
+                {
+                    "title": "Checkout is only for signed-in users",
+                    "acceptance_criteria": [{"given": "the user is signed out", "when": "they open Checkout", "then": "they are taken to the sign-in page"}],
+                    "source_ts": cites(prompt, "REQ-22"),
+                    "key": stated[1],
+                },
+            ],
+            "open_questions": [],
+        }
+
+    return answer
+
+
+def spec_fetch(doc_id):
+    return ("Checkout · Current product", SPEC_TEXT) if doc_id == SPEC_DOC else fetch(doc_id)
+
+
+def test_I_07_an_existing_spec_keeps_its_ids_and_later_requirements_carry_on_after_them():
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(spec_gemini()), PagesPRD(), FakeIssues())
+    result = svc.capture_notes("C1", "1.1", SPEC_DOC, spec_fetch)
+    assert [p.requirement.key for p in result.proposals] == ["REQ-21", "REQ-22"]  # shown on the card before approval
+    svc.approve_group(result.group_id, "UMAYA")
+    r21 = svc.store.get_requirement("REQ-21")
+    assert r21 and [a.key for a in r21.acs] == ["AC-21-1"] and svc.store.get_requirement("REQ-22")
+    svc.link_initiative("Checkout v2", PRD_DOC, "UPM")
+    v2 = svc.capture_notes("C1", "5.1", V2_DOC, spec_fetch)
+    done, _ = svc.approve_group(v2.group_id, "UMAYA")
+    # The counter moved past REQ-22. (The kickoff's "change to REQ-7" is new here: this baseline has no REQ-7.)
+    assert sorted(p.requirement.key for p in done) == ["REQ-23", "REQ-24"]
+
+
+def test_N_55_an_id_not_in_the_text_or_already_approved_is_not_kept():
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(spec_gemini(("REQ-99", "REQ-22"))), PagesPRD(), FakeIssues())
+    result = svc.capture_notes("C1", "1.1", SPEC_DOC, spec_fetch)
+    assert [p.requirement.key for p in result.proposals] == ["", "REQ-22"]  # REQ-99 isn't in the doc: invented
+    svc.approve_group(result.group_id, "UMAYA")
+    assert {r.key for r in svc.store.requirements()} == {"REQ-7", "REQ-22"}
+
+    again = SpecKeeper(svc.store, FakeEngine(spec_gemini()), PagesPRD(), FakeIssues())
+    edited = SPEC_TEXT + "REQ-22 again in a recap.\n"
+    redo = again.capture_notes("C1", "1.1", SPEC_DOC, lambda d: ("Checkout · Current product", edited))
+    assert all(p.requirement.key != "REQ-22" for p in redo.proposals)  # approved already: not claimed twice
+
+
+def test_C_58_a_stated_number_taken_by_the_time_of_approval_gets_the_next_one():
+    store = MemoryStore(first_req=7)
+    assert store.claim_req_number(21) == 21 and store.claim_req_number(None) == 22
+    from speckeeper.models import Requirement
+
+    store.save_requirement(Requirement(key="REQ-30", title="x", status="approved"))
+    assert store.claim_req_number(30) == 23  # taken: the next free number
+    assert store.claim_req_number(8) == 8 and store.claim_req_number(None) == 24  # a lower free one, counter unmoved
