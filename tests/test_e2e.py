@@ -360,6 +360,15 @@ def test_E2E_10_questions_go_to_the_agent_and_the_answer_is_posted():
     assert "decided at the kickoff" in app.slack.posted("chat.update")[-1]["text"]
 
 
+def test_E2E_11_commands_go_to_the_agent_too():
+    asker = Asker()
+    app = App(asker=asker)
+    app.mention("Print REQ-7", ts="300.1")
+    app.mention("list all", ts="301.1")
+    assert asker.questions == ["Print REQ-7", "list all"]
+    assert not any("capture this" in m["text"] for m in app.slack.posted("chat.postMessage"))
+
+
 # --- negative cases -----------------------------------------------------------------------------
 
 
@@ -769,3 +778,19 @@ def test_N_32_criterion_text_in_the_diff_is_literal_so_it_cannot_ping_or_link():
     assert {b["type"] for b in red["blocks"] + green["blocks"]} == {"rich_text"}  # no mrkdwn to parse
     texts = [r for line in _lines(green) for r in line]
     assert all(r["type"] == "text" for r in texts) and "<!channel>" in "".join(r["text"] for r in texts)
+
+
+def test_N_33_small_talk_gets_help_not_a_gemini_call():
+    asker = Asker()
+    app = App(asker=asker)
+    for i, text in enumerate(["hello", "thanks!", "help", ""]):
+        app.mention(text, ts=f"30{i}.1")
+    assert asker.questions == []
+    assert all("capture this" in m["text"] for m in app.slack.posted("chat.postMessage"))
+
+
+def test_C_27_a_bare_notes_link_still_captures_when_the_agent_is_on():
+    asker = Asker()
+    app = App(asker=asker)
+    app.mention(LINK)
+    assert asker.questions == [] and "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
