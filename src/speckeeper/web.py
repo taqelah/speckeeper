@@ -71,6 +71,16 @@ def status_strip(svc) -> str:
 NEW_TAB = re.compile(r'<a ((?![^>]*\btarget=)[^>]*\bhref="(?!#)[^"]*"[^>]*?)>')
 
 
+def command(url: str, prefix: str, otherwise: str) -> str:
+    """A copyable Slack command ending in a doc link, or a plain instruction when the link isn't set."""
+    if not url.startswith("https://"):
+        return otherwise
+    text = prefix + url
+    return (
+        f'<span class="cmd"><code>{html.escape(text)}</code><button type="button" class="copy" data-copy="{html.escape(text, quote=True)}">Copy</button></span>'
+    )
+
+
 def landing(s: Settings, status: str = "") -> str:
     def q(v):
         return html.escape(v, quote=True)
@@ -101,12 +111,10 @@ def landing(s: Settings, status: str = "") -> str:
         else "",
         channel=channel,
         status=status,
-        notes_cmd=(
-            f'<span class="cmd"><code>@Spec Keeper {html.escape(s.demo_notes_url)}</code>'
-            f'<button type="button" class="copy" data-copy="{q("@Spec Keeper " + s.demo_notes_url)}">Copy</button></span>'
-            if s.demo_notes_url.startswith("https://")
-            else " post <code>@Spec Keeper</code> with the pinned kickoff notes link."
-        ),
+        notes_cmd=command(s.demo_notes_url, "@Spec Keeper ", " post <code>@Spec Keeper</code> with the pinned kickoff notes link."),
+        baseline_cmd=command(s.demo_baseline_url, "@Spec Keeper ", " post <code>@Spec Keeper</code> with the pinned current product link."),
+        prd_cmd=command(s.demo_prd_url, "@Spec Keeper prd Checkout v2 ", " post <code>@Spec Keeper prd Checkout v2</code> with the pinned PRD link."),
+        v2prd=q(s.demo_prd_url or repo),
         limit=f"Each person can make {s.requests_per_user} requests every {minutes} minutes",
         limit_detail=(
             f"Questions and captures use Gemini, so each person gets {s.requests_per_user} every {minutes} minutes; "
