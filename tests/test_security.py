@@ -112,7 +112,31 @@ def test_N_19_a_user_over_the_request_limit_is_told_to_wait_and_gemini_is_not_ca
     for i in range(3):
         app.mention(f"why is the limit 25 MB {i}?", ts=f"10{i}.1")
     assert len(asker.questions) == 2
-    assert "Try again in about" in app.slack.posted("chat.postEphemeral")[-1]["text"]
+    told = app.slack.posted("chat.postEphemeral")[-1]
+    assert "reached the limit of 2 requests in 10 minutes" in told["text"] and "You can ask again in about" in told["text"]
+    assert "thread_ts" not in told  # top-level mentions: told in the channel
+
+
+def test_N_47_the_limit_message_says_why_what_counts_and_when():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from speckeeper.slack_app import limit_message
+
+    four = datetime(2026, 10, 17, 16, 0, tzinfo=ZoneInfo("Asia/Singapore"))
+    text = limit_message(50, 600, 185, four)
+    assert text.startswith(":hourglass: You've reached the limit of 50 requests in 10 minutes.")
+    assert "Questions and captures use Gemini" in text and "approving, dismissing and retiring don't count" in text
+    assert text.endswith("You can ask again in about 3 minutes, at 4:03 PM.")
+    assert limit_message(50, 600, 61, four).endswith("in about 1 minute, at 4:01 PM.")
+    assert limit_message(50, 600, 20, four).endswith("You can ask again in under a minute.")
+    assert "limit of 5 requests in 1 hour" in limit_message(5, 3600, 900, four)
+
+
+def test_C_47_the_default_limit_is_50_per_10_minutes():
+    from speckeeper.config import Settings
+
+    assert Settings.__dataclass_fields__["requests_per_user"].default == 50
 
 
 def test_N_20_a_spent_daily_budget_pauses_gemini_with_a_clear_message(monkeypatch):

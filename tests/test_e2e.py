@@ -430,7 +430,14 @@ def test_N_08_a_click_on_a_card_from_before_a_restart_says_so():
 def test_N_09_a_rate_limited_question_gets_a_clear_message():
     app = App(asker=Asker(RuntimeError("429 RESOURCE_EXHAUSTED")))
     app.mention("is REQ-7 verified?")
-    assert "couldn't look that up" in app.slack.posted("chat.update")[-1]["text"]
+    text = app.slack.posted("chat.update")[-1]["text"]
+    assert "Gemini is getting too many requests right now, so I couldn't look that up" in text and "Nothing was lost" in text
+
+
+def test_N_48_other_failures_dont_blame_gemini():
+    app = App(asker=Asker(RuntimeError("issue #429 not found")))
+    app.mention("is REQ-7 verified?")
+    assert app.slack.posted("chat.update")[-1]["text"] == "I couldn't look that up just now. Try again in a minute."
 
 
 def test_N_10_messages_from_bots_are_ignored():
@@ -999,10 +1006,12 @@ def test_C_46_asking_again_links_to_the_card_already_waiting_even_in_another_thr
     app.mention("retire REQ-8 test", ts="300.1")
     card_ts = next(p for p in app.svc.store.proposals_for("REQ-8") if p.kind == "retire").message_ts
     assert card_ts
-    app.mention("remove REQ-8", ts="400.1")
-    (reply,) = app.slack.posted("chat.postEphemeral")
-    assert reply["text"] == f"Retiring REQ-8 is already waiting for an approver: <https://slack.test/p{card_ts}|see the card>."
-    assert reply["thread_ts"] == "400.1"
+    app.mention("remove REQ-8", ts="400.1", thread_ts="399.1")
+    app.mention("remove REQ-8", ts="401.1")  # top level: no thread to put a private reply in
+    in_thread, top = app.slack.posted("chat.postEphemeral")
+    assert in_thread["text"] == f"Retiring REQ-8 is already waiting for an approver: <https://slack.test/p{card_ts}|see the card>."
+    assert in_thread["thread_ts"] == "399.1"
+    assert "thread_ts" not in top  # in the channel: Slack hides a private reply in a thread that doesn't exist
 
 
 def test_N_46_without_a_known_card_the_reply_still_says_why():
