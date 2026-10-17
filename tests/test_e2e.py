@@ -796,7 +796,6 @@ def test_C_27_a_bare_notes_link_still_captures_when_the_agent_is_on():
     assert asker.questions == [] and "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
 
 
-
 def test_C_31_approving_a_change_card_that_went_out_of_date_says_why_and_writes_nothing():
     to_5 = json.loads(json.dumps(CHANGE).replace("10 MB", "5 MB").replace("12 MB", "7 MB"))
     app = App(Gemini(KICKOFF, CHANGE, to_5), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
