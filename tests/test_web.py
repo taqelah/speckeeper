@@ -143,3 +143,11 @@ def test_C_59_the_new_flow_has_copyable_commands_for_the_current_product_and_the
 def test_N_56_without_the_links_the_steps_say_what_to_post():
     body = page().get("/").text
     assert "with the pinned current product link" in body and "with the pinned PRD link" in body
+
+
+def test_C_64_the_steps_say_when_to_watch_for_ci_and_what_it_shows():
+    body = page().get("/").text
+    assert body.count('class="watch') == 3 and body.count("⏱") == 3
+    assert "Wait for them before step 3" in body and "REQ-10 to REQ-13 post nothing" in body
+    assert '<span class="watch warn"><span class="head">⏱ Watch for CI · about a minute</span>' in body
+    assert "⚠️ REQ-7 is not verified yet" in body and "▶ Watch the tests" in body
