@@ -365,3 +365,12 @@ def test_C_58_a_stated_number_taken_by_the_time_of_approval_gets_the_next_one():
     store.save_requirement(Requirement(key="REQ-30", title="x", status="approved"))
     assert store.claim_req_number(30) == 23  # taken: the next free number
     assert store.claim_req_number(8) == 8 and store.claim_req_number(None) == 24  # a lower free one, counter unmoved
+
+
+def test_C_63_the_meeting_card_shows_the_ids_an_existing_spec_states():
+    from speckeeper.cards import baseline_card
+
+    svc = SpecKeeper(MemoryStore(first_req=7), FakeEngine(spec_gemini()), PagesPRD(), FakeIssues())
+    result = svc.capture_notes("C1", "1.1", SPEC_DOC, spec_fetch)
+    lines = baseline_card(result.group_id, result.title, result.proposals, [])[1]["text"]["text"]
+    assert "• *REQ-21* Receipt uploads are limited to 25 MB" in lines and "• *REQ-22* Checkout is only for signed-in users" in lines
