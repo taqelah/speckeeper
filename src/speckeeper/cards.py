@@ -99,7 +99,6 @@ def approval_card(p: Proposal) -> list[dict]:
             "block_id": f"proposal:{p.id}",
             "elements": [
                 {"type": "button", "style": "primary", "action_id": APPROVE, "value": p.id, "text": {"type": "plain_text", "text": "Approve"}},
-                {"type": "button", "action_id": EDIT, "value": p.id, "text": {"type": "plain_text", "text": "Edit"}},
                 {"type": "button", "action_id": DISMISS, "value": p.id, "text": {"type": "plain_text", "text": "Dismiss"}},
             ],
         },

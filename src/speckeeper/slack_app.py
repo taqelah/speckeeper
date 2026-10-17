@@ -566,9 +566,12 @@ def build_slack_app(
 
     @app.action(EDIT)
     async def on_edit(ack, body, client):
+        """Cards no longer have Edit; this answers the button on cards posted before it was taken off."""
         await ack()
         await client.chat_postEphemeral(
-            channel=body["channel"]["id"], user=body["user"]["id"], text="Editing is coming next. For now, dismiss, fix the thread and capture again."
+            channel=body["channel"]["id"],
+            user=body["user"]["id"],
+            text="Editing isn't available. Dismiss this card, fix the thread or the meeting notes, and capture again.",
         )
 
     # --- thread watch ---

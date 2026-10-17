@@ -820,3 +820,17 @@ def test_N_38_notes_someone_else_is_capturing_get_a_wait_message_and_no_gemini_c
     app.mention(f"capture {LINK}")
     assert gemini.prompts == []
     assert "Someone is reading these notes right now" in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_N_39_cards_have_no_edit_button_and_an_old_card_s_edit_still_gets_an_answer():
+    _, card = _change_card()
+    assert "edit_proposal" not in json.dumps(card)
+    app = App()
+    app.mention(f"capture {LINK}")
+    app.click("review_group", app.button(app.last_card(), "review_group"), app.last_card())
+    cards = [m for m in app.slack.posted("chat.postMessage") if "approve_proposal" in json.dumps(m)]
+    assert cards and not any("edit_proposal" in json.dumps(m) for m in cards)
+    old = {"ts": "1.1", "blocks": []}  # a card posted before Edit was taken off
+    assert app.click("edit_proposal", "p1", old).status_code == 200
+    (note,) = app.slack.posted("chat.postEphemeral")
+    assert "Dismiss this card" in note["text"] and app.svc.store.get_proposal("p1") is None
