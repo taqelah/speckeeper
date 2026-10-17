@@ -113,6 +113,8 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
    its name (`AC-7-1@v1 …`) → passing, failing or stale → Slack message in the thread where the
    requirement was last approved, and an issue comment. checkout-app's workflow runs on its own when
    Spec Keeper opens requirement issues or comments that one changed, so results follow an approval.
+   It records each test as a video in Playwright's HTML report on its GitHub Pages and sends the link as
+   `report_url`; Slack gets "▶ Watch the tests" only for a link on that repo's own Pages site.
 4. **Questions:** any mention phrased as a question → the ADK agent (on Agent Engine when
    `AGENT_ENGINE` is set, else local) → tools read the store → answer with sources, starting with what
    changed since the person last asked (Memory Bank).

@@ -1035,3 +1035,52 @@ def test_C_48_ci_results_go_to_the_thread_where_the_requirement_was_last_approve
     app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
     stale = app.slack.posted("chat.postMessage")[-1]
     assert (stale["channel"], stale["thread_ts"]) == ("C1", "200.1") and "stale" in stale["text"]
+
+
+def _ci_with_report(app: App, url: str, repo: str = "taqelah/checkout-app"):
+    from dataclasses import replace
+
+    from speckeeper.main import create_app
+
+    app.http = TestClient(create_app(replace(settings(), github_repo=repo), app.svc, slack_client=app.slack.client(), fetch_doc=fetch_ok, wait=True))
+    body = {"run_id": "#21", "channel": "C1", "junit_xml": junit(("AC-7-1@v1 rejects a 30 MB file", True)), "report_url": url}
+    return app.http.post("/ci", json=body, headers={"X-SpecKeeper-Secret": CI})
+
+
+def test_C_49_ci_results_link_the_test_videos_on_the_product_repo_s_pages():
+    app = App()
+    kickoff_approved(app)
+    _ci_with_report(app, "https://taqelah.github.io/checkout-app/")
+    text = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert text.endswith("\n<https://taqelah.github.io/checkout-app/|▶ Watch the tests>") and "REQ-7 is verified" in text
+    assert "Watch the tests" not in app.issues.comments[-1][1]  # Slack only; the issue comment stays as it was
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.test/checkout-app/",
+        "http://taqelah.github.io/checkout-app/",
+        "https://taqelah.github.io/other-repo/",
+        "https://taqelah.github.io.evil.test/checkout-app/",
+        "https://taqelah.github.io/checkout-app/|click here",
+        "https://taqelah.github.io/checkout-app/><!channel>",
+    ],
+)
+def test_N_49_a_report_link_anywhere_else_is_dropped_and_the_results_still_post(url, capsys):
+    app = App()
+    kickoff_approved(app)
+    res = _ci_with_report(app, url)
+    text = app.slack.posted("chat.postMessage")[-1]["text"]
+    assert res.json()["posted"] is True and "REQ-7 is verified" in text
+    assert "Watch the tests" not in text and "evil" not in text and "<!channel>" not in text
+    assert '"ci_report_url_refused"' in capsys.readouterr().out
+
+
+def test_C_50_without_a_report_or_a_repo_there_is_no_link():
+    app = App()
+    kickoff_approved(app)
+    _ci_with_report(app, "")
+    assert "Watch the tests" not in app.slack.posted("chat.postMessage")[-1]["text"]
+    _ci_with_report(app, "https://taqelah.github.io/checkout-app/", repo="")
+    assert "Watch the tests" not in app.slack.posted("chat.postMessage")[-1]["text"]
