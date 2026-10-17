@@ -1171,3 +1171,37 @@ def test_C_62_a_test_name_from_ci_cannot_break_out_of_its_code_span_or_ping():
     app.http.post("/ci", json={"run_id": "#80", "channel": "C1", "junit_xml": junit_xml}, headers={"X-SpecKeeper-Secret": CI})
     text = app.slack.posted("chat.postMessage")[-1]["text"]
     assert "<!channel>" not in text and text.splitlines()[1].count("`") == 2
+
+
+def test_C_65_the_issue_checklist_shows_each_criterion_s_status_and_ticks_what_passes():
+    from speckeeper.integrations import GitHubIssues
+    from speckeeper.models import AcceptanceCriterion, Requirement
+
+    req = Requirement(
+        key="REQ-7",
+        title="Receipt files are limited to 8 MB",
+        version=2,
+        acs=[
+            AcceptanceCriterion(key="AC-7-1", gherkin="Given a\nWhen b\nThen c", version=2, ci_status="passing", last_test="AC-7-1@v2 shows the 8 MB limit"),
+            AcceptanceCriterion(
+                key="AC-7-2", gherkin="Given a\nWhen b\nThen c", version=2, ci_status="stale", last_test="AC-7-2@v1 shows `File exceeds 25 MB`"
+            ),
+            AcceptanceCriterion(key="AC-7-3", gherkin="Given a\nWhen b\nThen c", version=1, ci_status="failing", last_test="AC-7-3@v1 accepts 5 MB"),
+            AcceptanceCriterion(key="AC-7-4", gherkin="Given a\nWhen b\nThen c", version=1),
+        ],
+    )
+    body = GitHubIssues._body(req)
+    assert "- [x] `AC-7-1@v2` · passing: `AC-7-1@v2 shows the 8 MB limit`" in body
+    assert "- [ ] `AC-7-2@v2` · stale: `AC-7-2@v1 shows 'File exceeds 25 MB'` still tests v1. Once it checks v2, rename it to `AC-7-2@v2` …" in body
+    assert "- [ ] `AC-7-3@v1` · failing: `AC-7-3@v1 accepts 5 MB`" in body and "- [ ] `AC-7-4@v1` · no test yet" in body
+    assert "e.g. `AC-7-1@v2 …`; Spec Keeper ticks the box when it passes." in body
+    assert "​" not in body  # the keys copy cleanly into a test name
+
+
+def test_C_66_a_ci_run_refreshes_the_issue_so_its_boxes_tick():
+    app = App()
+    kickoff_approved(app)
+    before = len(app.issues.updated)
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
+    assert len(app.issues.updated) == before + 1 and app.issues.updated[-1][0] == 1  # issue #1 rewritten with the result
+    assert "REQ-7 is verified" in app.issues.comments[-1][1]  # and the comment still posted
