@@ -160,7 +160,7 @@ Optional, all read in `config.py` (or `budget.py`):
 
 - Access: `ALLOWED_CHANNELS` (names or ids; empty = every channel), `APPROVERS` (Slack user ids),
   `DEMO_CHANNELS` (ids where `reset demo` works).
-- Limits: `REQUESTS_PER_USER`, `REQUESTS_WINDOW_SECONDS` (10 per 10 minutes), `DAILY_TOKEN_BUDGET`.
+- Limits: `REQUESTS_PER_USER`, `REQUESTS_WINDOW_SECONDS` (50 per 10 minutes), `DAILY_TOKEN_BUDGET`.
 - Thread watch: `WATCH_QUIET_SECONDS`, `WATCH_MIN_CONFIDENCE`, `WATCH_THINKING`.
 - Google Cloud: `AGENT_ENGINE` (the engine's resource name), `ANALYTICS_DATASET`, `TRACE_TO_CLOUD=1`.
 - Landing page: `DEMO_SLACK_INVITE`, `DEMO_VIDEO_URL`, `CONTACT_EMAIL`, `DEMO_CHANNEL_NAME`,

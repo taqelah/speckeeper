@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from slack_bolt import BoltResponse
@@ -60,6 +60,32 @@ QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "ho
 SMALL_TALK = {"", "help", "hi", "hello", "hey", "thanks", "thank you", "thx", "ok", "okay"}  # a whole mention that gets the help text
 
 
+def _span(seconds: float) -> str:
+    """600 -> '10 minutes', 60 -> '1 minute', 3600 -> '1 hour'."""
+    n, unit = (int(seconds // 3600), "hour") if seconds >= 3600 and seconds % 3600 == 0 else (max(1, int(seconds // 60)), "minute")
+    return f"{n} {unit}{'' if n == 1 else 's'}"
+
+
+def limit_message(per_user: int, per_seconds: float, wait_s: int, now: datetime | None = None) -> str:
+    """What someone over the per-person limit is told: the limit, why, what counts, and when to come back."""
+    window = _span(per_seconds)
+    if wait_s < 60:
+        when = "in under a minute"
+    else:
+        at = ((now or datetime.now(ZoneInfo(TZ))) + timedelta(seconds=wait_s)).strftime("%I:%M %p").lstrip("0")
+        when = f"in about {_span(wait_s)}, at {at}"
+    return (
+        f":hourglass: You've reached the limit of {per_user} requests in {window}. Questions and captures use Gemini, "
+        f"so each person gets {per_user} every {window}; approving, dismissing and retiring don't count. "
+        f"You can ask again {when}."
+    )
+
+
+def _gemini_busy(e: Exception) -> bool:
+    """Gemini's own rate limit (429), on both models: not ours, and it passes in a minute or two."""
+    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in str(e)
+
+
 def _when(iso: str) -> str:
     """'Oct 15, 10:42' in Singapore time, for 'the notes were edited since …'."""
     if not iso:
@@ -85,7 +111,7 @@ def build_slack_app(
     wait: bool = False,
     quiet: float = 15,
     approvers: tuple[str, ...] = (),
-    per_user: int = 10,
+    per_user: int = 50,
     per_seconds: float = 600,
     demo_channels: tuple[str, ...] = (),
     allowed_channels: tuple[str, ...] = (),
@@ -159,12 +185,7 @@ def build_slack_app(
         wait_s = over_limit(user)
         if wait_s:
             audit("rate_limited", "WARNING", user=user, channel=channel)
-            await client.chat_postEphemeral(
-                channel=channel,
-                user=user,
-                thread_ts=thread_ts,
-                text=f"That's {per_user} requests in {int(per_seconds // 60)} minutes. Try again in about {max(1, wait_s // 60)} min.",
-            )
+            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=limit_message(per_user, per_seconds, wait_s))
         return bool(wait_s)
 
     async def may_decide(client, body) -> bool:
@@ -184,6 +205,8 @@ def build_slack_app(
     def failed(e: Exception, what: str) -> str:
         if isinstance(e, BudgetExceeded):
             return "Today's AI budget is used up, so I'm pausing until tomorrow (UTC). Nothing was lost."
+        if _gemini_busy(e):
+            return f":hourglass: Gemini is getting too many requests right now, so I couldn't {what}. Nothing was lost. Try again in a minute or two."
         return f"I couldn't {what} just now. Try again in a minute."
 
     async def eyes(client, channel: str, ts: str, on: bool = True) -> None:

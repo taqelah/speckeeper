@@ -430,7 +430,14 @@ def test_N_08_a_click_on_a_card_from_before_a_restart_says_so():
 def test_N_09_a_rate_limited_question_gets_a_clear_message():
     app = App(asker=Asker(RuntimeError("429 RESOURCE_EXHAUSTED")))
     app.mention("is REQ-7 verified?")
-    assert "couldn't look that up" in app.slack.posted("chat.update")[-1]["text"]
+    text = app.slack.posted("chat.update")[-1]["text"]
+    assert "Gemini is getting too many requests right now, so I couldn't look that up" in text and "Nothing was lost" in text
+
+
+def test_N_48_other_failures_dont_blame_gemini():
+    app = App(asker=Asker(RuntimeError("issue #429 not found")))
+    app.mention("is REQ-7 verified?")
+    assert app.slack.posted("chat.update")[-1]["text"] == "I couldn't look that up just now. Try again in a minute."
 
 
 def test_N_10_messages_from_bots_are_ignored():
