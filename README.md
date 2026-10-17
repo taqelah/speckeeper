@@ -86,26 +86,7 @@ flowchart LR
 - **Models:** Gemini 3.1 Pro for capture and Gemini 3.8 Flash for questions, on the Vertex AI global
   endpoint, each falling back to the other on a rate limit.
 
-## Status
-
-This is a hackathon prototype.
-
-| Works today | In progress |
-|---|---|
-| Meeting and thread capture with citations | Measured results on labelled threads (eval suite) |
-| Approval cards, baseline v1.0.0 and minor versions | Drift checks on channel messages outside threads Spec Keeper is in |
-| The PRD in Google Docs, rebuilt on every approval and CI run | Editing a captured requirement before approval (for now: dismiss, fix the source, capture again) |
-| GitHub issues with keyed criteria | Restoring a retired requirement |
-| Retiring an approved requirement, with its history kept | |
-| Safe when people approve or capture at the same time | |
-| CI verification per criterion, with stale tests | |
-| Change detection: REQ-7 v1 to v2 with a diff | |
-| Thread watch: suggests a capture when a thread it was mentioned in changes a requirement | |
-| ADK question agent with sources, on Agent Engine with Memory Bank | |
-| Capture and thread watch as ADK multi-agent pipelines | |
-| Analytics in BigQuery and traces in Cloud Trace | |
-| Limited to the allowed project channels | |
-| Deployed on Cloud Run with Firestore and Secret Manager | |
+## Demo product
 
 The demo product Spec Keeper watches is [taqelah/checkout-app](https://github.com/taqelah/checkout-app):
 a receipt upload page whose Playwright tests are named after REQ-7's criteria, with a GitHub Actions
