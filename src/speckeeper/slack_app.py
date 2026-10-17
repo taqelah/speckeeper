@@ -604,7 +604,14 @@ def build_slack_app(
         try:
             proposals = await asyncio.to_thread(svc.request_retire, keys, reason, channel, thread_ts, user)
         except RetireRefused as e:
-            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=str(e))
+            text, p = str(e), e.waiting
+            if p and p.message_ts:
+                try:  # the card may be in another thread: link to it
+                    link = (await client.chat_getPermalink(channel=p.channel, message_ts=p.message_ts))["permalink"]
+                    text = text.rstrip(".") + f": <{link}|see the card>."
+                except Exception:
+                    log.warning("no permalink for retire card %s", p.id)
+            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=text)
             return
         audit("retire_asked", user=user, requirements=",".join(p.target for p in proposals), channel=channel)
         res = await client.chat_postMessage(

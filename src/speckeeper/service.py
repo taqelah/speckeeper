@@ -48,7 +48,12 @@ class RequirementRetired(OutdatedChange):
 
 
 class RetireRefused(ValueError):
-    """A retire that can't be asked for; the message says why, for the person who asked."""
+    """A retire that can't be asked for; the message says why, for the person who asked. `waiting`: the
+    retire already asked for, whose card the reply can link to."""
+
+    def __init__(self, message: str, waiting: Proposal | None = None) -> None:
+        super().__init__(message)
+        self.waiting = waiting
 
 
 class CaptureInProgress(Exception):
@@ -497,8 +502,9 @@ class SpecKeeper:
                 raise RetireRefused(f"{key} isn't an approved requirement.")
             if r.status == "retired":
                 raise RetireRefused(f"{key} is already retired.")
-            if any(p.kind == "retire" and p.status in ("pending", "deciding") for p in self.store.proposals_for(key)):
-                raise RetireRefused(f"Retiring {key} is already waiting for an approver; see the card asking for it.")
+            waiting = next((p for p in self.store.proposals_for(key) if p.kind == "retire" and p.status in ("pending", "deciding")), None)
+            if waiting:
+                raise RetireRefused(f"Retiring {key} is already waiting for an approver.", waiting)
             reqs.append(r)
         group_id, now = "r" + uuid.uuid4().hex[:11], _now()
         proposals = []
