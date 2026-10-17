@@ -112,7 +112,8 @@ def test_N_19_a_user_over_the_request_limit_is_told_to_wait_and_gemini_is_not_ca
     for i in range(3):
         app.mention(f"why is the limit 25 MB {i}?", ts=f"10{i}.1")
     assert len(asker.questions) == 2
-    assert "Try again in about" in app.slack.posted("chat.postEphemeral")[-1]["text"]
+    told = app.slack.posted("chat.postEphemeral")[-1]
+    assert "Try again in about" in told["text"] and "thread_ts" not in told  # top-level mentions: told in the channel
 
 
 def test_N_20_a_spent_daily_budget_pauses_gemini_with_a_clear_message(monkeypatch):

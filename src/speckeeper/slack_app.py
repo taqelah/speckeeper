@@ -153,7 +153,9 @@ def build_slack_app(
         q.append(now)
         return 0
 
-    async def busy(client, channel: str, thread_ts: str, user: str) -> bool:
+    async def busy(client, channel: str, thread_ts: str | None, user: str) -> bool:
+        """`thread_ts` places the private reply: a real thread, or None for the channel. Slack doesn't show a
+        private reply in a thread that doesn't exist, as a top-level message's own ts would be."""
         wait_s = over_limit(user)
         if wait_s:
             audit("rate_limited", "WARNING", user=user, channel=channel)
@@ -218,7 +220,7 @@ def build_slack_app(
                     thread_ts=thread_ts,
                 )
                 return
-            if await busy(client, channel, thread_ts, user):
+            if await busy(client, channel, event.get("thread_ts"), user):
                 return
             await eyes(client, channel, event["ts"])
             try:
@@ -245,7 +247,15 @@ def build_slack_app(
             return
         if first in RETIRE_WORDS:
             raw = MENTION.sub("", event.get("text", "")).strip()[len(first) :]
-            await ask_retire(client, channel, thread_ts, event.get("user", ""), REQ_KEY.findall(raw), " ".join(REQ_KEY.sub("", raw).split()).strip(" ,.:;-"))
+            await ask_retire(
+                client,
+                channel,
+                thread_ts,
+                event.get("thread_ts"),
+                event.get("user", ""),
+                REQ_KEY.findall(raw),
+                " ".join(REQ_KEY.sub("", raw).split()).strip(" ,.:;-"),
+            )
             return
         await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in
         question = text.endswith("?") or first in QUESTION_WORDS
@@ -255,7 +265,7 @@ def build_slack_app(
         if not meeting and first not in CAPTURE_WORDS and not ask:
             await say(text=HELP, thread_ts=thread_ts)
             return
-        if await busy(client, channel, thread_ts, event.get("user", "")):
+        if await busy(client, channel, event.get("thread_ts"), event.get("user", "")):
             return
         await eyes(client, channel, event["ts"])
         try:
@@ -599,8 +609,9 @@ def build_slack_app(
 
     # --- retire ---
 
-    async def ask_retire(client, channel: str, thread_ts: str, user: str, keys: list[str], reason: str) -> None:
-        """Post a card asking an approver to retire these requirements. Anyone may ask."""
+    async def ask_retire(client, channel: str, thread_ts: str, private_ts: str | None, user: str, keys: list[str], reason: str) -> None:
+        """Post a card asking an approver to retire these requirements, in `thread_ts`. Anyone may ask. A
+        refusal goes privately to `private_ts`: the real thread, or None for the channel (see busy)."""
         try:
             proposals = await asyncio.to_thread(svc.request_retire, keys, reason, channel, thread_ts, user)
         except RetireRefused as e:
@@ -611,7 +622,7 @@ def build_slack_app(
                     text = text.rstrip(".") + f": <{link}|see the card>."
                 except Exception:
                     log.warning("no permalink for retire card %s", p.id)
-            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=text)
+            await client.chat_postEphemeral(channel=channel, user=user, thread_ts=private_ts, text=text)
             return
         audit("retire_asked", user=user, requirements=",".join(p.target for p in proposals), channel=channel)
         res = await client.chat_postMessage(
@@ -628,7 +639,7 @@ def build_slack_app(
         await ack()
         channel, message = body["channel"]["id"], body["message"]
         thread = message.get("thread_ts") or message["ts"]
-        await ask_retire(client, channel, thread, body["user"]["id"], body["actions"][0]["value"].split(","), "")
+        await ask_retire(client, channel, thread, message.get("thread_ts"), body["user"]["id"], body["actions"][0]["value"].split(","), "")
 
     @app.action(RETIRE_CONFIRM)
     async def on_retire_confirm(ack, body, client):
