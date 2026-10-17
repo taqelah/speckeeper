@@ -20,6 +20,7 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     body = res.text
     assert "Specs can’t keep up." in body and "The problem" in body and "AC-7-1@v1" in body
     assert "youtube-nocookie.com/embed/oDYUKIYXDic" in body and body.index('id="demo"') < body.index('id="problem"')  # the demo video, before the problem
+    assert body.index("youtube-nocookie.com/embed/WXdmKMWIeeQ") < body.index("0 · Start clean")  # the real run, before step 0
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
     assert "9 · Watch the tests go stale." in body and "taqelah/checkout-app/actions" in body.split("9 · Watch the tests go stale.")[1][:700]
