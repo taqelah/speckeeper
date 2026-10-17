@@ -22,6 +22,8 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     assert "youtube-nocookie.com/embed/xVQnzTEOaO4" in body and body.index('id="demo"') < body.index('id="problem"')  # the demo video, before the problem
     assert "https://docs.google.com/document/d/DOC1/edit" in body and "taqelah/checkout-app/actions" in body
     assert "7 requests every 5 minutes" in body and "$" not in body.split("</style>")[1]  # every placeholder filled
+    assert "6 · Watch the tests go stale." in body and "taqelah/checkout-app/actions" in body.split("6 · Watch the tests go stale.")[1][:600]
+    assert "9 · Undo a mistake." in body and 'data-copy="@Spec Keeper retire REQ-11 wrong notes"' in body
     assert "If you hit a limit." in body and "each person gets 7 every 5 minutes; approving, dismissing and retiring don’t count" in body
     assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
 
@@ -81,7 +83,7 @@ def test_try_it_explains_joining_slack_step_by_step_when_there_is_an_invite():
     body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_channel_name="project-checkout").get("/").text
     assert "Join the demo Slack" in body and 'href="https://join.slack.com/t/x/shared_invite/abc"' in body
     assert "six-character code" in body and "Browse channels" in body and "<b>project-checkout</b>" in body
-    assert "About ten minutes in #project-checkout" in body and "Start clean</b> in #project-checkout" in body
+    assert "About fifteen minutes in #project-checkout" in body and "Start clean</b> in #project-checkout" in body
     assert "Join the demo Slack" not in page().get("/").text  # no invite link: no join steps
 
 
@@ -93,7 +95,7 @@ def test_the_reset_hint_offers_the_video_only_when_there_is_one():
 def test_try_it_shows_memory_bank_and_trust_names_recovery_and_supply_chain():
     body = page().get("/").text
     assert 'data-copy="@Spec Keeper what is the upload limit?"' in body and "3 · Ask a question</b> in the same thread" in body
-    assert "6 · Ask why." in body and "changed since you last asked" in body and "7 · Try to break it" in body
+    assert "7 · Ask why." in body and "changed since you last asked" in body and "8 · Try to break it" in body
     assert "Recoverable and audited." in body and "point-in-time recovery" in body and "Supply chain." in body
 
 
