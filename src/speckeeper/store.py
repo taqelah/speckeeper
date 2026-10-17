@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -26,12 +28,16 @@ class Store(Protocol):
     def claim_proposal(self, pid: str) -> bool: ...
     def next_req_number(self) -> int: ...
     def save_requirement(self, r: Requirement) -> None: ...
+    def replace_requirement(self, r: Requirement, expected_version: int) -> bool: ...
     def get_requirement(self, key: str) -> Requirement | None: ...
     def requirements(self) -> list[Requirement]: ...
     def proposals_in_group(self, group_id: str) -> list[Proposal]: ...
     def proposals_for(self, key: str) -> list[Proposal]: ...
     def get_meta(self, key: str, default: str = "") -> str: ...
     def set_meta(self, key: str, value: str) -> None: ...
+    def update_meta(self, change: Callable[[dict], dict]) -> dict: ...
+    def claim_lock(self, name: str, seconds: float) -> bool: ...
+    def release_lock(self, name: str) -> None: ...
     def clear(self) -> None: ...
 
 
@@ -44,10 +50,11 @@ class MemoryStore:
         self._reqs: dict[str, Requirement] = {}
         self._next = self._first = first_req
         self._meta: dict[str, str] = {}
+        self._locks: dict[str, float] = {}  # name -> when it expires (time.time())
 
     def clear(self) -> None:
         """Everything gone and numbering back to the start: the demo's reset."""
-        self._proposals, self._reqs, self._meta, self._next = {}, {}, {}, self._first
+        self._proposals, self._reqs, self._meta, self._next, self._locks = {}, {}, {}, self._first, {}
 
     def save_proposal(self, p: Proposal) -> None:
         self._proposals[p.id] = p.model_copy(deep=True)
@@ -74,6 +81,16 @@ class MemoryStore:
     def save_requirement(self, r: Requirement) -> None:
         self._reqs[r.key] = r.model_copy(deep=True)
 
+    def replace_requirement(self, r: Requirement, expected_version: int) -> bool:
+        """Saves r only if the stored one is still at `expected_version`: of two changes approved at
+        once, the second finds the first's version and writes nothing."""
+        with _claims:
+            old = self._reqs.get(r.key)
+            if old is None or old.version != expected_version:
+                return False
+            self.save_requirement(r)
+            return True
+
     def get_requirement(self, key: str) -> Requirement | None:
         r = self._reqs.get(key)
         return r.model_copy(deep=True) if r else None
@@ -94,6 +111,26 @@ class MemoryStore:
 
     def set_meta(self, key: str, value: str) -> None:
         self._meta[key] = value
+
+    def update_meta(self, change: Callable[[dict], dict]) -> dict:
+        """change(meta) -> the keys to write, read and written as one step. Returns what was written."""
+        with _claims:
+            updates = change(dict(self._meta))
+            for k, v in updates.items():
+                self.set_meta(k, v)
+            return updates
+
+    def claim_lock(self, name: str, seconds: float) -> bool:
+        """True for exactly one caller until release_lock, or until `seconds` pass (a crash mid-way)."""
+        with _claims:
+            now = time.time()
+            if self._locks.get(name, 0) > now:
+                return False
+            self._locks[name] = now + seconds
+            return True
+
+    def release_lock(self, name: str) -> None:
+        self._locks.pop(name, None)
 
 
 class FileStore(MemoryStore):
@@ -160,8 +197,8 @@ class FirestoreStore:
         return self._db.collection(self._prefix + name)
 
     def clear(self) -> None:
-        """Deletes every proposal, requirement and meta document (the REQ counter too)."""
-        for name in ("proposals", "requirements", "meta"):
+        """Deletes every proposal, requirement, meta and lock document (the REQ counter too)."""
+        for name in ("proposals", "requirements", "meta", "locks"):
             for ref in self._col(name).list_documents():
                 ref.delete()
 
@@ -202,6 +239,20 @@ class FirestoreStore:
     def save_requirement(self, r: Requirement) -> None:
         self._col("requirements").document(r.key).set(r.model_dump())
 
+    def replace_requirement(self, r: Requirement, expected_version: int) -> bool:
+        """Saves r only if the stored one is still at `expected_version`, in a transaction across instances."""
+        ref = self._col("requirements").document(r.key)
+
+        @self._fs.transactional
+        def swap(tx) -> bool:
+            snap = ref.get(transaction=tx)
+            if not snap.exists or (snap.to_dict() or {}).get("version") != expected_version:
+                return False
+            tx.set(ref, r.model_dump())
+            return True
+
+        return swap(self._db.transaction())
+
     def get_requirement(self, key: str) -> Requirement | None:
         snap = self._col("requirements").document(key).get()
         return Requirement.model_validate(snap.to_dict()) if snap.exists else None
@@ -219,6 +270,36 @@ class FirestoreStore:
 
     def set_meta(self, key: str, value: str) -> None:
         self._col("meta").document("project").set({key: value}, merge=True)
+
+    def update_meta(self, change: Callable[[dict], dict]) -> dict:
+        """change(meta) -> the keys to write, in a transaction: Firestore may run `change` again on a conflict."""
+        ref = self._col("meta").document("project")
+
+        @self._fs.transactional
+        def update(tx) -> dict:
+            snap = ref.get(transaction=tx)
+            updates = change(dict(snap.to_dict() or {}) if snap.exists else {})
+            tx.set(ref, updates, merge=True)
+            return updates
+
+        return update(self._db.transaction())
+
+    def claim_lock(self, name: str, seconds: float) -> bool:
+        ref = self._col("locks").document(name)
+
+        @self._fs.transactional
+        def claim(tx) -> bool:
+            snap = ref.get(transaction=tx)
+            now = time.time()
+            if snap.exists and (snap.to_dict() or {}).get("until", 0) > now:
+                return False
+            tx.set(ref, {"until": now + seconds})
+            return True
+
+        return claim(self._db.transaction())
+
+    def release_lock(self, name: str) -> None:
+        self._col("locks").document(name).delete()
 
     def proposals_for(self, key: str) -> list[Proposal]:
         col = self._col("proposals")

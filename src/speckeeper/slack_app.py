@@ -39,7 +39,7 @@ from .cards import (
 )
 from .models import Source
 from .notes import FetchDoc, doc_id_in
-from .service import SpecKeeper
+from .service import OUTDATED, CaptureInProgress, OutdatedChange, SpecKeeper
 
 log = logging.getLogger("speckeeper")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
@@ -320,6 +320,10 @@ def build_slack_app(
             return
         try:
             result = await asyncio.to_thread(svc.capture_notes, channel, thread_ts, doc_id, fetch_doc)
+        except CaptureInProgress:
+            text = "Someone is reading these notes right now. Their card will be up in a moment; mention me with the link again after that to see it here."
+            await client.chat_update(channel=channel, ts=working["ts"], text=text)
+            return
         except Exception as e:
             log.exception("meeting capture failed")
             unreadable = type(e).__name__ in ("PermissionError", "HttpError")
@@ -454,7 +458,12 @@ def build_slack_app(
             return
         await working(client, body, f"Approving for <@{user}>…")
         done, version = await asyncio.to_thread(svc.approve_group, gid, user, body["user"].get("name", ""))
+        outdated = [p.target for p in svc.store.proposals_in_group(gid) if p.decided_by == OUTDATED]
+        skipped = f" Not approved, changed since: {', '.join(outdated)}; capture again." if outdated else ""
         if not done:
+            if outdated:
+                note = ":warning:" + skipped + " Nothing was written."
+                await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **without_buttons(body["message"], note))
             return
         keys = ", ".join(p.requirement.key for p in done)
         audit("approved", user=user, requirements=keys, prd_version=version, group=gid)
@@ -463,6 +472,7 @@ def build_slack_app(
             f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}."
             + (f" Written to {prd_link()}." if svc.prd else "")
             + (f" {issues_link(issues)} opened." if issues else "")
+            + skipped
         )
         await client.chat_update(
             channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_group_card(gid, _group_title(body), done, note)
@@ -509,7 +519,16 @@ def build_slack_app(
             await stale(client, body)
             return
         await working(client, body, f"Approving for <@{user}>…")
-        p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
+        try:
+            p, version = await asyncio.to_thread(svc.approve, pid, user, body["user"].get("name", ""))
+        except OutdatedChange as e:
+            audit("change_outdated", user=user, target=e.target, base=e.base, current=e.current)
+            note = (
+                f":warning: Not approved: *{e.target} is at v{e.current} now*, and this change was written against v{e.base}. "
+                f"Approving it would undo what changed since. Nothing was written. Capture again to get a change against v{e.current}."
+            )
+            await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, **without_buttons(body["message"], note))
+            return
         if p is None:
             return
         r = p.requirement

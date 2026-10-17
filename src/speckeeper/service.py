@@ -29,6 +29,23 @@ BASELINE = "1.0.0"
 MAX_NOTES_CHARS = 100_000  # about 40 pages; more would cost a lot and lose detail
 
 
+class OutdatedChange(Exception):
+    """A change card written against an older version of its requirement: approving it would undo
+    whatever was approved since."""
+
+    def __init__(self, target: str, base: int, current: int) -> None:
+        super().__init__(f"{target} is at v{current}; the change was written against v{base}")
+        self.target, self.base, self.current = target, base, current
+
+
+class CaptureInProgress(Exception):
+    """Someone else is capturing the same notes right now."""
+
+
+OUTDATED = "outdated"  # decided_by of a change card that went out of date before anyone approved it
+CAPTURE_LOCK_SECONDS = 600  # a capture that crashed frees its notes after this long
+
+
 class NotesTooLong(ValueError):
     pass
 
@@ -121,6 +138,7 @@ class SpecKeeper:
     def capture(self, channel: str, thread_ts: str, messages: list[Source], group_id: str = "") -> tuple[list[Proposal], list[str]]:
         approved = [r for r in self.store.requirements() if r.status == "approved"]
         reqs, questions = self.engine.capture(messages, approved)
+        versions = {r.key: r.version for r in approved}
         proposals = []
         now = _now()
         for seq, (req, changes) in enumerate(reqs):
@@ -129,6 +147,7 @@ class SpecKeeper:
                 id=uuid.uuid4().hex[:12],
                 kind=kind,
                 target=changes,
+                base_version=versions.get(changes, 0) if changes else 0,
                 requirement=req,
                 channel=channel,
                 thread_ts=thread_ts,
@@ -228,7 +247,19 @@ class SpecKeeper:
 
         Unchanged notes (same fingerprint) return the earlier group without calling Gemini. Edited notes
         are read again against the approved requirements, and only what is new or different comes back:
-        new decisions as new proposals, edits to approved ones as change proposals."""
+        new decisions as new proposals, edits to approved ones as change proposals.
+
+        One capture per doc at a time, across instances: two people pasting the same link at once
+        would otherwise both reach Gemini and both get a card to approve."""
+        lock = f"notes-{doc_id}"
+        if not self.store.claim_lock(lock, CAPTURE_LOCK_SECONDS):
+            raise CaptureInProgress(doc_id)
+        try:
+            return self._capture_notes(channel, thread_ts, doc_id, fetch)
+        finally:
+            self.store.release_lock(lock)
+
+    def _capture_notes(self, channel: str, thread_ts: str, doc_id: str, fetch: FetchDoc) -> NotesCapture:
         title, text = fetch(doc_id)
         if len(text) > MAX_NOTES_CHARS:
             raise NotesTooLong(f"{len(text)} characters")
@@ -279,20 +310,25 @@ class SpecKeeper:
 
     def _release(self, what: str, user: str, group_id: str = "") -> str:
         """The first approval is the baseline v1.0.0, and so is everything else from the same meeting,
-        however it is approved (all at once or one by one). Each later approval is a minor version."""
-        current = self.prd_version
-        if group_id and current and self.store.get_meta("baseline_group") == group_id:
-            version = current
-        elif not current:
-            version = BASELINE
-            self.store.set_meta("baseline_group", group_id)
-        else:
-            major, minor, _ = (int(x) for x in current.split("."))
-            version = f"{major}.{minor + 1}.0"
-        self.store.set_meta("prd_version", version)
-        releases = self.releases
-        releases.append({"version": version, "what": what, "by": user, "at": _now()})
-        self.store.set_meta("releases", json.dumps(releases))
+        however it is approved (all at once or one by one). Each later approval is a minor version.
+        Read and written in one step, so two approvals at once get two versions and two release lines."""
+        at = _now()
+
+        def bump(meta: dict) -> dict:
+            current, updates = meta.get("prd_version", ""), {}
+            if group_id and current and meta.get("baseline_group") == group_id:
+                version = current
+            elif not current:
+                version = BASELINE
+                updates["baseline_group"] = group_id
+            else:
+                major, minor, _ = (int(x) for x in current.split("."))
+                version = f"{major}.{minor + 1}.0"
+            releases = json.loads(meta.get("releases", "") or "[]")
+            releases.append({"version": version, "what": what, "by": user, "at": at})
+            return updates | {"prd_version": version, "releases": json.dumps(releases)}
+
+        version = self.store.update_meta(bump)["prd_version"]
         self.publish_prd()
         return version
 
@@ -316,7 +352,13 @@ class SpecKeeper:
         """Approve every pending proposal from one meeting in one go: the PRD's baseline."""
         # Numbered in the order the meeting produced them, whatever order the store returns.
         group = sorted(self.store.proposals_in_group(group_id), key=lambda p: (p.created_at, p.seq))
-        done = [p for p in (self._approve(p.id, user) for p in group) if p]
+        done = []
+        for p in group:
+            try:
+                if d := self._approve(p.id, user):
+                    done.append(d)
+            except OutdatedChange:
+                continue  # marked outdated; the rest of the meeting still goes in
         if not done:
             return [], self.prd_version
         keys = ", ".join(p.requirement.key for p in done)
@@ -342,6 +384,12 @@ class SpecKeeper:
         p = self.store.get_proposal(pid)
         try:
             done = self._approve_change(p, user) if p.kind == "change" else self._approve_new(p, user)
+        except OutdatedChange:
+            # No buttons come back for it: approving it later would still undo the newer version.
+            p.status, p.decided_by, p.decided_at = "dismissed", OUTDATED, _now()
+            p.requirement.status = "dismissed"
+            self.store.save_proposal(p)
+            raise
         except Exception:
             self._unclaim(pid)
             raise
@@ -372,14 +420,23 @@ class SpecKeeper:
         old = self.store.get_requirement(p.target)
         if old is None:
             return None
+        if p.base_version and old.version != p.base_version:
+            raise OutdatedChange(p.target, p.base_version, old.version)  # REQ-7 moved on since this card was made
         req, stale = apply_change(old, p.requirement)
+        # Saved before GitHub hears of it: of two changes approved at once, only one gets here.
+        if not self.store.replace_requirement(req, old.version):
+            now = self.store.get_requirement(p.target)
+            raise OutdatedChange(p.target, old.version, now.version if now else old.version)
         if self.issues and req.issue_number:
-            self.issues.update(req.issue_number, req)
-            note = f"Changed to v{req.version} after approval in Slack: {req.title}."
-            if stale:
-                note += " Stale until their tests are updated to @v" + str(req.version) + ": " + ", ".join(stale) + "."
-            self.issues.comment(req.issue_number, note)
-        self.store.save_requirement(req)
+            try:
+                self.issues.update(req.issue_number, req)
+                note = f"Changed to v{req.version} after approval in Slack: {req.title}."
+                if stale:
+                    note += " Stale until their tests are updated to @v" + str(req.version) + ": " + ", ".join(stale) + "."
+                self.issues.comment(req.issue_number, note)
+            except Exception:
+                self.store.replace_requirement(old, req.version)  # nothing half-done: the card can be approved again
+                raise
         p.previous = old
         p.requirement, p.status, p.decided_by, p.decided_at = req, "approved", user, _now()
         self.store.save_proposal(p)

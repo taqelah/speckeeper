@@ -794,3 +794,30 @@ def test_C_27_a_bare_notes_link_still_captures_when_the_agent_is_on():
     app = App(asker=asker)
     app.mention(LINK)
     assert asker.questions == [] and "Reading the meeting notes" in app.slack.posted("chat.postMessage")[0]["text"]
+
+
+
+def test_C_31_approving_a_change_card_that_went_out_of_date_says_why_and_writes_nothing():
+    to_5 = json.loads(json.dumps(CHANGE).replace("10 MB", "5 MB").replace("12 MB", "7 MB"))
+    app = App(Gemini(KICKOFF, CHANGE, to_5), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    ten = app.last_card()
+    app.mention("capture this", ts="200.4", thread_ts="200.1")
+    five = app.last_card()
+    app.click("approve_proposal", app.button(ten, "approve_proposal"), ten)
+    app.click("approve_proposal", app.button(five, "approve_proposal"), five)
+    final = app.slack.posted("chat.update")[-1]
+    assert "REQ-7 is at v2 now" in final["text"] and "Nothing was written" in final["text"]
+    assert "approve_proposal" not in json.dumps(final)  # no buttons to try again with
+    r = app.svc.store.get_requirement("REQ-7")
+    assert (r.version, r.title) == (2, "Receipt uploads are limited to 10 MB")
+
+
+def test_N_38_notes_someone_else_is_capturing_get_a_wait_message_and_no_gemini_call():
+    gemini = Gemini(KICKOFF)
+    app = App(gemini)
+    assert app.svc.store.claim_lock(f"notes-{DOC}", 60)  # another instance is reading them
+    app.mention(f"capture {LINK}")
+    assert gemini.prompts == []
+    assert "Someone is reading these notes right now" in app.slack.posted("chat.update")[-1]["text"]

@@ -59,5 +59,6 @@ class Proposal(BaseModel):
     created_at: str = ""  # when it was captured (ISO time)
     seq: int = 0  # its position in that capture, so a meeting's requirements are numbered in meeting order
     target: str = ""  # for kind "change": the approved requirement it changes, e.g. REQ-7
+    base_version: int = 0  # for kind "change": the version of the target it was written against (0: not recorded)
     decided_at: str = ""  # ISO time of the approval or dismissal
     previous: Requirement | None = None  # for an approved change: the requirement as it was before
