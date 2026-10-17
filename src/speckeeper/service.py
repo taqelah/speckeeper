@@ -51,6 +51,10 @@ class NotesTooLong(ValueError):
     pass
 
 
+class NotesEmpty(ValueError):
+    """The doc has no line worth reading: nothing to send to Gemini, and nothing to remember."""
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -265,6 +269,9 @@ class SpecKeeper:
         title, text = fetch(doc_id)
         if len(text) > MAX_NOTES_CHARS:
             raise NotesTooLong(f"{len(text)} characters")
+        lines = passages(doc_id, title, text)
+        if not lines:
+            raise NotesEmpty(doc_id)  # before anything is saved: filled in later, it's a first capture
         digest = fingerprint(text)
         before = self.store.get_meta(f"doc:{doc_id}")
         earlier = self.store.proposals_in_group(before) if before else []
@@ -273,8 +280,10 @@ class SpecKeeper:
         if before and self.store.get_meta(f"dochash:{doc_id}") == digest:
             group = self.store.proposals_in_group(before)
             return NotesCapture("unchanged", before, title, group, [], self.store.get_meta(f"docat:{doc_id}"))
+        if before and not earlier:
+            before = None  # the last read found nothing (an empty doc, say): what's there now is the first capture
         group_id = "g" + uuid.uuid4().hex[:11]
-        proposals, questions = self.capture(channel, thread_ts, passages(doc_id, title, text), group_id)
+        proposals, questions = self.capture(channel, thread_ts, lines, group_id)
         if before:
             proposals = self._drop_repeats(proposals)
         captured_at = self.store.get_meta(f"docat:{doc_id}")

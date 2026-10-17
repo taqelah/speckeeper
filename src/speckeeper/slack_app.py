@@ -39,7 +39,7 @@ from .cards import (
 )
 from .models import Source
 from .notes import FetchDoc, doc_id_in
-from .service import OUTDATED, CaptureInProgress, OutdatedChange, SpecKeeper
+from .service import OUTDATED, CaptureInProgress, NotesEmpty, OutdatedChange, SpecKeeper
 
 log = logging.getLogger("speckeeper")
 MENTION = re.compile(r"<@[A-Z0-9]+>")
@@ -320,6 +320,11 @@ def build_slack_app(
             return
         try:
             result = await asyncio.to_thread(svc.capture_notes, channel, thread_ts, doc_id, fetch_doc)
+        except NotesEmpty:
+            await client.chat_update(
+                channel=channel, ts=working["ts"], text="That doc looks empty. Add the meeting notes, then mention me with the link again."
+            )
+            return
         except CaptureInProgress:
             text = "Someone is reading these notes right now. Their card will be up in a moment; mention me with the link again after that to see it here."
             await client.chat_update(channel=channel, ts=working["ts"], text=text)
