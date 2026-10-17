@@ -94,8 +94,10 @@ This is a hackathon prototype.
 |---|---|
 | Meeting and thread capture with citations | Measured results on labelled threads (eval suite) |
 | Approval cards, baseline v1.0.0 and minor versions | Drift checks on channel messages outside threads Spec Keeper is in |
-| The PRD in Google Docs, rebuilt on every approval and CI run | An Edit button on cards |
-| GitHub issues with keyed criteria | |
+| The PRD in Google Docs, rebuilt on every approval and CI run | Editing a captured requirement before approval (for now: dismiss, fix the source, capture again) |
+| GitHub issues with keyed criteria | Restoring a retired requirement |
+| Retiring an approved requirement, with its history kept | |
+| Safe when people approve or capture at the same time | |
 | CI verification per criterion, with stale tests | |
 | Change detection: REQ-7 v1 to v2 with a diff | |
 | Thread watch: suggests a capture when a thread it was mentioned in changes a requirement | |
@@ -124,15 +126,20 @@ Checked against the OWASP API, Web and LLM Top 10. In short:
   One store serves every channel, so elsewhere a mention gets a one-line reply, and clicks and thread messages
   do nothing.
 - **Decisions.** Each proposal is claimed atomically (a Firestore transaction) before it is approved or
-  dismissed, so a double click or two approvers can't file it twice. `reset demo` waits 10 minutes after
-  someone else last used the demo, so it can't wipe a run in progress.
+  dismissed, so a double click or two approvers can't file it twice. A change card records the version it
+  was written against and is refused if the requirement changed or was retired since; requirements are
+  saved with a compare-and-set, PRD versions are taken in a transaction, and the same notes are captured
+  once at a time. Retiring needs an approver too. `reset demo` waits 10 minutes after someone else last
+  used the demo, so it can't wipe a run in progress.
 - **CI webhook.** The secret is checked before the body is read, the body is capped at 3 MB, and results
   are posted only in channels where requirements were captured.
 - **Requests.** Slack requests are signature-checked; `/ci` needs a shared secret and takes at most 2 MB of
-  JUnit XML, parsed with `defusedxml`. Each user gets 10 Gemini requests per 10 minutes, and a daily token
-  budget (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached. The question agent checks it before every
+  JUnit XML, parsed with `defusedxml`. Each user gets 50 Gemini requests (questions and captures) per 10
+  minutes (`REQUESTS_PER_USER`), and is told privately when they can ask again; a daily token budget
+  (`DAILY_TOKEN_BUDGET`) stops Gemini calls if it is reached. An empty notes doc is answered without
+  calling Gemini. The question agent checks it before every
   model call and counts every call's tokens, through ADK callbacks.
-- **Audit.** Approvals, dismissals, refused clicks, bad signatures and secrets, rate limits, the budget, every
+- **Audit.** Approvals, dismissals, retirements, refused clicks, bad signatures and secrets, rate limits, the budget, every
   question-agent tool call (who asked, which tool and key, found or not) and model fallbacks are logged as structured entries in Cloud Logging, with an alert on repeated refusals.
 - **Agent Engine.** The "why?" agent runs on Vertex AI Agent Engine (`deploy_agent.sh`) with managed sessions,
   called from Cloud Run (`AGENT_ENGINE`); the local agent answers if the engine fails. Its Memory Bank
@@ -168,7 +175,7 @@ cloudflared tunnel --url http://localhost:8080    # a public URL for Slack and G
 ```
 
 **Slack app:** create it from [slack-manifest.yaml](slack-manifest.yaml), or by hand with bot scopes `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`,
-`groups:history`, `groups:read`, `users:read`; bot events `app_mention`, `message.channels`,
+`groups:history`, `groups:read`, `reactions:write`, `users:read`; bot events `app_mention`, `message.channels`,
 `message.groups`; Event Subscriptions and Interactivity request URL `<public URL>/slack/events`.
 Invite the bot to the project channel, and set `ALLOWED_CHANNELS` to it (and `APPROVERS` to limit who
 can approve).
@@ -178,8 +185,12 @@ can approve).
 `X-SpecKeeper-Secret` (see checkout-app's workflow).
 
 **Deploy:** `GCP_PROJECT=... GITHUB_REPO=org/repo PRD_DOC_ID=... ./deploy.sh` (Cloud Run,
-asia-southeast1, secrets from Secret Manager). To answer questions on Agent Engine, run
-`GCP_PROJECT=... ./deploy_agent.sh` once, then set `AGENT_ENGINE` to the name it prints and deploy again.
+asia-southeast1, secrets from Secret Manager). `deploy.sh` sets every setting at once, so pass all the
+ones you use each time (`ALLOWED_CHANNELS`, `APPROVERS`, `AGENT_ENGINE`, `REQUESTS_PER_USER`, …); one
+left out is cleared. To answer questions on Agent Engine, run `GCP_PROJECT=... ./deploy_agent.sh` once,
+then set `AGENT_ENGINE` to the name it prints and deploy again; after changing the agent, run it again
+with `AGENT_ENGINE_ID` set. Both deploy scripts use your gcloud login, and `deploy_agent.sh` also your
+application-default credentials, so both need access to the project.
 
 ## Test
 
@@ -187,10 +198,11 @@ asia-southeast1, secrets from Secret Manager). To answer questions on Agent Engi
 uv run pytest
 ```
 
-190 tests, about three seconds, no network. 49 of them run the whole app end to end: Slack-signed
+240 tests, about three seconds, no network. 83 of them run the whole app end to end: Slack-signed
 events and button clicks through the real web app, with a local fake of the Slack API recording
 everything Spec Keeper posts, plus negative cases (bad signatures, replayed requests, wrong CI secret,
-broken CI XML, uncited output, rate limits) and corner cases.
+broken CI XML, uncited output, rate limits) and corner cases. Others run two people at once: two
+changes to one requirement, the same notes captured twice, simultaneous approvals.
 
 ## Evaluate the question agent
 
@@ -200,8 +212,8 @@ uv run --env-file .env --group eval python -m evals.qa.run
 
 An ADK eval (`AgentEvaluator`) of the "why?" agent: 13 questions about a fixed project (the Checkout v2
 kickoff, then the upload limit changed from 25 MB to 8 MB in Slack), each with the tool calls it needs
-and a reference answer. A Gemini judge scores every answer. Latest results, 13 questions × 3 runs
-([evals/qa/report.json](evals/qa/report.json)):
+and a reference answer. A Gemini judge scores every answer. Latest results, 13 questions × 3 runs,
+from Oct 15, 2026 ([evals/qa/report.json](evals/qa/report.json)):
 
 | Metric | What it checks | Passed | Average |
 |---|---|---|---|
