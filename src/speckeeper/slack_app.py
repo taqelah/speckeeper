@@ -55,6 +55,7 @@ TZ = "Asia/Singapore"  # how message times are written in citations
 # How people ask for a capture, and how questions start. A mention with a notes link always reads the notes.
 CAPTURE_WORDS = {"capture", "analyse", "analyze", "review", "check", "read", "sync", "update", "process", "summarise", "summarize"}
 RESET_GRACE_SECONDS = 600  # a reset waits this long after someone else last used the demo
+RETIRE_WORDS = {"retire", "remove", "delete", "withdraw"}  # "remove REQ-8" means retire: history is kept either way
 QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "how", "where", "are", "does", "can"}
 SMALL_TALK = {"", "help", "hi", "hello", "hey", "thanks", "thank you", "thx", "ok", "okay"}  # a whole mention that gets the help text
 
@@ -242,8 +243,8 @@ def build_slack_app(
             )
             await say(text=note, thread_ts=thread_ts)
             return
-        if first == "retire":
-            raw = MENTION.sub("", event.get("text", "")).strip()[len("retire") :]
+        if first in RETIRE_WORDS:
+            raw = MENTION.sub("", event.get("text", "")).strip()[len(first) :]
             await ask_retire(client, channel, thread_ts, event.get("user", ""), REQ_KEY.findall(raw), " ".join(REQ_KEY.sub("", raw).split()).strip(" ,.:;-"))
             return
         await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in

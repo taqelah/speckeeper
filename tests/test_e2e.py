@@ -974,3 +974,20 @@ def test_C_43_help_mentions_retire():
     app = App()
     app.mention("hello")
     assert "retire REQ-12" in app.slack.posted("chat.postMessage")[-1]["text"]
+
+
+@pytest.mark.parametrize("text", ["remove REQ-8", "Delete REQ-8 please", "withdraw REQ-8: wrong notes"])
+def test_C_44_remove_or_delete_ask_to_retire_instead_of_going_to_the_agent(text):
+    asker = Asker()
+    app = App(asker=asker)
+    kickoff_approved(app)
+    app.mention(text, ts="300.1")
+    assert asker.questions == []
+    assert "asks to retire 1 requirement" in json.dumps(_retire_card(app)["blocks"])
+    assert app.svc.store.get_requirement("REQ-8").status == "approved"  # still only asked
+
+
+def test_C_45_the_agent_points_people_to_retire():
+    from speckeeper.agent import INSTRUCTION
+
+    assert "@Spec Keeper retire REQ-n" in INSTRUCTION
