@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 
 from .audit import audit
+from .ci import report_link
 from .config import Settings
 from .service import SpecKeeper
 from .slack_app import build_slack_app
@@ -32,6 +33,7 @@ class CiRun(BaseModel):
     run_id: str
     channel: str
     junit_xml: str
+    report_url: str = ""  # the run's Playwright report with test videos, on the product repo's GitHub Pages
 
 
 def build_service(s: Settings) -> SpecKeeper:
@@ -187,8 +189,12 @@ def create_app(s: Settings | None = None, svc: SpecKeeper | None = None, slack_c
         # it there. The run's own channel is only for a requirement with no such thread, and only if
         # requirements were captured in it: CI can't post in a channel Spec Keeper wasn't used in.
         allowed = await asyncio.to_thread(svc.requirement_channels)
+        watch = report_link(run.report_url, s.github_repo)
+        if run.report_url and not watch:
+            audit("ci_report_url_refused", "WARNING")  # results still posted, without the link
         posted = False
         for req, text in changed:
+            text += watch
             where = await asyncio.to_thread(svc.ci_thread, req.key)
             if where:
                 await slack.client.chat_postMessage(channel=where[0], thread_ts=where[1], text=text)

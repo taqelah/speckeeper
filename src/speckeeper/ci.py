@@ -81,3 +81,15 @@ def summary(req: Requirement, run_id: str) -> str:
         lines.append(f"{icon[ac.ci_status]} {ac.key} {ac.ci_status}" + (f" · {_esc(ac.last_test)}" if ac.last_test else ""))
     lines.append(f"*{req.key} is verified.*" if req.verified else f"{req.key} is not verified yet.")
     return "\n".join(lines)
+
+
+def report_link(url: str, repo: str) -> str:
+    """A Slack line linking the run's Playwright report (test videos), or "" unless `url` is on the product
+    repo's own GitHub Pages site: a forged CI post can't put a link of its choosing in front of people."""
+    if not repo or "/" not in repo:
+        return ""
+    owner, name = repo.split("/", 1)
+    site = f"https://{owner.lower()}.github.io/{name}/"
+    if not url.startswith(site) or len(url) > 300 or not re.fullmatch(r"[A-Za-z0-9._~/#?=&%:-]+", url):
+        return ""
+    return f"\n<{url}|▶ Watch the tests>"
