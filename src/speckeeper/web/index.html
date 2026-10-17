@@ -40,6 +40,7 @@
   .demo .kicker { margin: 0; }
   .video { position: relative; aspect-ratio: 16 / 9; border: 2px solid var(--ink); background: var(--ink); }
   .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .steps .video { margin-top: 12px; }
   .chapter { padding-top: 48px; padding-bottom: 48px; display: flex; flex-wrap: wrap; gap: 40px; }
   .chapter > .label { flex: 1 1 220px; min-width: 0; font-family: 'Archivo', sans-serif; }
   .chapter > .label .num { font-size: 72px; font-weight: 900; line-height: 1; color: var(--accent); }
@@ -122,6 +123,7 @@
     <div class="label"><div class="num">II</div><div class="name" id="test-h">Try it yourself</div><p>About twenty minutes in #$channel, after joining. Captures take 15 to 45 seconds. $limit.</p></div>
     <ol class="steps body">
       $join
+      <li><b>Watch it done first.</b> A real run of every step below, recorded in real time (6:37), so you know what to expect.<div class="video"><iframe src="https://www.youtube-nocookie.com/embed/WXdmKMWIeeQ?rel=0" title="Spec Keeper: a real run of every step" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div></li>
       <li><b>0 · Start clean</b> in #$channel, if someone tested before you. Type it as a new message in the channel, and pick Spec Keeper from the list as you type @Spec.<span class="cmd"><code>@Spec Keeper reset demo</code><button type="button" class="copy" data-copy="@Spec Keeper reset demo">Copy</button></span><span class="hint">You’ll see “Demo reset…”. If it says someone else is using the demo, they ran it in the last 10 minutes: wait the minutes it gives$video_hint. Then open <a href="$prd" target="_blank" rel="noopener">the product spec</a> and <a href="$v2prd" target="_blank" rel="noopener">the Checkout v2 PRD</a> in new tabs and keep them open: both say nothing is approved yet.</span></li>
       <li><b>1 · Capture what’s shipped.</b> Checkout already exists: its current product doc lists REQ-7 to REQ-9 with their acceptance criteria and the tests that check them. One card, keeping those IDs. About 30 seconds.$baseline_cmd<span class="hint">After pasting, check that @Spec Keeper turns into a blue mention. If it doesn't, delete it, type @Spec and pick Spec Keeper from the list.</span></li>
       <li><b>2 · Approve all as v1.0.0.</b> The product spec gets REQ-7 to REQ-9 and GitHub gets an issue for each.<span class="watch"><span class="head">⏱ Watch for CI · about a minute</span>Stay in this thread. The new issues start Checkout’s existing tests on their own, and three results arrive here: <b>✅ REQ-7 is verified</b>, then REQ-8 and REQ-9. They’re shipped and already tested, so they’re verified. Each result links to the CI run, a video of the tests, and the issue. Wait for them before step 3.</span></li>
