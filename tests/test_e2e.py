@@ -834,3 +834,22 @@ def test_N_39_cards_have_no_edit_button_and_an_old_card_s_edit_still_gets_an_ans
     assert app.click("edit_proposal", "p1", old).status_code == 200
     (note,) = app.slack.posted("chat.postEphemeral")
     assert "Dismiss this card" in note["text"] and app.svc.store.get_proposal("p1") is None
+
+
+def test_C_33_review_one_by_one_on_a_reposted_card_posts_the_cards_in_that_thread():
+    app = App(Gemini(KICKOFF))
+    app.mention(f"capture {LINK}")  # captured in thread 100.1
+    first = app.last_card()
+    app.click("review_group", app.button(first, "review_group"), first)
+    one = next(m for m in app.slack.posted("chat.postMessage") if "approve_proposal" in json.dumps(m))
+    app.click("approve_proposal", app.button({"blocks": one["blocks"]}, "approve_proposal"), {"ts": "1.9", "blocks": one["blocks"]})
+
+    app.mention(f"capture {LINK}", ts="300.1")  # the link again, in a new thread
+    again = app.slack.posted("chat.update")[-1]
+    assert "1 already approved: REQ-7" in json.dumps(again["blocks"])  # on the card, not only in notifications
+    assert "captured 1 agreed requirement:" in json.dumps(again["blocks"])
+    card = {"ts": again["ts"], "thread_ts": "300.1", "blocks": again["blocks"]}
+    before = len(app.slack.posted("chat.postMessage"))
+    app.click("review_group", app.button(card, "review_group"), card)
+    (posted,) = [m for m in app.slack.posted("chat.postMessage")[before:] if "approve_proposal" in json.dumps(m)]
+    assert posted["thread_ts"] == "300.1"  # below the card clicked, not in thread 100.1

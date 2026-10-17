@@ -52,15 +52,20 @@ def steps(gherkin: str) -> dict[str, list[str]]:
     return out
 
 
+def meeting_label(label: str) -> tuple[str, str]:
+    """ "Kickoff · Oct 14, 2026, 00:06:45" -> ("Kickoff · Oct 14, 2026", "00:06:45"): only a clock time at the
+    end is the time, not the date's comma. No time: (label, "")."""
+    m = re.match(r"(.*), (\d{1,2}:\d{2}(?::\d{2})?)$", label)
+    return (m.group(1), m.group(2)) if m else (label, "")
+
+
 def source_parts(req: Requirement) -> list[tuple[str, str, str]]:
     """(label, times, link) per meeting (its times together) or Slack message, never the same one twice."""
     meetings: dict[str, tuple[str, list[str]]] = {}
     others: list[tuple[str, str, str]] = []
     for s in req.sources:
         if s.kind == "meeting":
-            # "Kickoff · Oct 14, 2026, 00:06:45": only a clock time at the end is the time, not the date's comma.
-            m = re.match(r"(.*), (\d{1,2}:\d{2}(?::\d{2})?)$", s.label)
-            title, time = (m.group(1), m.group(2)) if m else (s.label, "")
+            title, time = meeting_label(s.label)
             _link_kept, times = meetings.setdefault(title, (s.permalink, []))
             if time and time not in times:
                 times.append(time)

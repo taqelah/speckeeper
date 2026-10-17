@@ -347,7 +347,9 @@ def build_slack_app(
                     + (f" ({len(approved)} already approved: {', '.join(approved)})" if approved else "")
                     + "."
                 )
-                await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=baseline_card(result.group_id, result.title, pending, []))
+                blocks = baseline_card(result.group_id, result.title, pending, [])
+                blocks.insert(2, {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})  # else only notifications say what's approved
+                await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=blocks)
                 for p in pending:
                     svc.set_card(p.id, working["ts"])
                 return
@@ -483,12 +485,13 @@ def build_slack_app(
         await ack()
         gid = body["actions"][0]["value"]
         channel, ts = body["channel"]["id"], body["message"]["ts"]
+        thread = body["message"].get("thread_ts") or ts  # below the card clicked: the notes may have been captured in another thread first
         if not svc.store.proposals_in_group(gid):
             await stale(client, body)
             return
         pending = [p for p in svc.store.proposals_in_group(gid) if p.status == "pending"]
         for p in pending:
-            res = await client.chat_postMessage(channel=channel, thread_ts=p.thread_ts, text="Captured a requirement", blocks=approval_card(p))
+            res = await client.chat_postMessage(channel=channel, thread_ts=thread, text="Captured a requirement", blocks=approval_card(p))
             svc.set_card(p.id, res["ts"])
         note = f"Reviewing {len(pending)} requirements one by one, below."
         await client.chat_update(channel=channel, ts=ts, text=note, blocks=decided_group_card(gid, _group_title(body), pending, note))
