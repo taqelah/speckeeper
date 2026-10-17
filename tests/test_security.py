@@ -83,7 +83,10 @@ def test_N_17_github_text_cannot_notify_people():
     req = Requirement(key="REQ-7", title="Ping @taqelah/everyone about 25 MB", acs=[AcceptanceCriterion(key="AC-7-1", gherkin="Given @maya\nWhen x\nThen y")])
     GitHubIssues("t", "o/r", client).create(req)
     assert "@taqelah" not in sent[0]["title"] and "@maya" not in sent[0]["body"] and "@​taqelah" in sent[0]["title"]
-    assert no_mentions("mail me@x.com") == "mail me@​x.com"
+    # Only an @ that starts a word pings on GitHub: an address or a test key stays as typed, so it can be copied.
+    assert no_mentions("mail me@x.com") == "mail me@x.com"
+    assert no_mentions("name a test AC-7-1@v2 …") == "name a test AC-7-1@v2 …"
+    assert no_mentions("(@maya) and\n@wei") == "(@\u200bmaya) and\n@\u200bwei"
 
 
 # --- gap 3: who may approve ---

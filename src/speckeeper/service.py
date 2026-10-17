@@ -667,6 +667,10 @@ class SpecKeeper:
             text = ci.summary(req, run_id)
             if self.issues and req.issue_number:
                 self.issues.comment(req.issue_number, text)
+                try:
+                    self.issues.update(req.issue_number, req)  # the checklist ticks what passes now
+                except Exception:
+                    log.exception("couldn't refresh issue %s", req.issue_number)  # the comment has the result
             out.append((req, text))
         if changed:
             self.publish_prd()

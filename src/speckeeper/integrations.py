@@ -22,8 +22,23 @@ def _gherkin_block(req: Requirement) -> str:
 
 def no_mentions(text: str) -> str:
     """GitHub text from meetings and Gemini: '@org/team' or '@user' would notify people, so a zero-width
-    space after each @ keeps the text readable and the ping out."""
-    return re.sub(r"@(?=[A-Za-z0-9])", "@\u200b", text)
+    space after each such @ keeps the text readable and the ping out. Only an @ that starts a word pings:
+    the one in a test key (AC-7-1@v2) or an address (a@b.com) is left as typed, so it can be copied."""
+    return re.sub(r"(?<![A-Za-z0-9_])@(?=[A-Za-z0-9])", "@\u200b", text)
+
+
+def _verification(ac) -> str:
+    """A criterion's line in the issue's checklist: ticked once a test proves it, with what CI said."""
+    key = f"`{ac.key}@v{ac.version}`"
+    test = f"`{ac.last_test.replace('`', chr(39))}`" if ac.last_test else ""
+    if ac.ci_status == "passing":
+        return f"- [x] {key} · passing: {test}"
+    if ac.ci_status == "failing":
+        return f"- [ ] {key} · failing: {test}"
+    if ac.ci_status == "stale":
+        m = re.search(r"@v(\d+)", ac.last_test)
+        return f"- [ ] {key} · stale: {test} still tests v{m.group(1) if m else '1'}. Once it checks v{ac.version}, rename it to {key} …"
+    return f"- [ ] {key} · no test yet"
 
 
 def _sources_line(req: Requirement, markdown: bool = False) -> str:
@@ -87,7 +102,11 @@ class GitHubIssues:
                     _gherkin_block(req).replace("```", "ʼʼʼ"),
                     "```",
                     "## Verification",
-                    *[f"- [ ] `{ac.key}@v{ac.version}` · a test whose name starts with this key" for ac in req.acs],
+                    *[_verification(ac) for ac in req.acs],
+                    "",
+                    f"Name each test after the criterion it proves, e.g. `{req.acs[0].key}@v{req.acs[0].version} …`; Spec Keeper ticks the box when it passes."
+                    if req.acs
+                    else "",
                     "",
                     f"From {req.key} in the PRD. {_sources_line(req, markdown=True)}",
                     "",
