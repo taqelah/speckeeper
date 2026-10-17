@@ -991,3 +991,24 @@ def test_C_45_the_agent_points_people_to_retire():
     from speckeeper.agent import INSTRUCTION
 
     assert "@Spec Keeper retire REQ-n" in INSTRUCTION
+
+
+def test_C_46_asking_again_links_to_the_card_already_waiting_even_in_another_thread():
+    app = App()
+    kickoff_approved(app)
+    app.mention("retire REQ-8 test", ts="300.1")
+    card_ts = next(p for p in app.svc.store.proposals_for("REQ-8") if p.kind == "retire").message_ts
+    assert card_ts
+    app.mention("remove REQ-8", ts="400.1")
+    (reply,) = app.slack.posted("chat.postEphemeral")
+    assert reply["text"] == f"Retiring REQ-8 is already waiting for an approver: <https://slack.test/p{card_ts}|see the card>."
+    assert reply["thread_ts"] == "400.1"
+
+
+def test_N_46_without_a_known_card_the_reply_still_says_why():
+    app = App()
+    kickoff_approved(app)
+    app.svc.request_retire(["REQ-8"], "", "C1", "1.1")  # asked, but its card was never recorded
+    app.mention("retire REQ-8", ts="400.1")
+    (reply,) = app.slack.posted("chat.postEphemeral")
+    assert reply["text"] == "Retiring REQ-8 is already waiting for an approver."
