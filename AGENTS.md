@@ -124,7 +124,8 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted
   model, no network), `test_pipelines.py` (the capture and thread-watch pipelines), `test_watch.py`
   (thread watch, W-), `test_memory.py` (Memory Bank), `test_remote.py` (Agent Engine and its fallback),
-  `test_security.py` (security fixes, N-12 on), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
+  `test_security.py` (security fixes, N-12 on), `test_concurrency.py` (two people at once: changes against an older
+  version, the same notes captured twice, PRD versions), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
   `test_analytics.py`, `test_tracing.py`, `test_web.py`, `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
 - **End-to-end tests** send Slack-signed requests through the real FastAPI and Bolt app. Slack is a
