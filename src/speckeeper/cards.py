@@ -129,19 +129,28 @@ def decided_card(p: Proposal, note: str) -> list[dict]:
     return blocks
 
 
-def baseline_card(group_id: str, title: str, proposals: list[Proposal], questions: list[str]) -> list[dict]:
-    """Everything one meeting agreed, approved together as the PRD's first version."""
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def baseline_card(group_id: str, title: str, proposals: list[Proposal], questions: list[str], version: str = "1.0.0") -> list[dict]:
+    """Everything one meeting agreed, approved together: the PRD's baseline, or a new meeting on top of it
+    (`version` 2.0.0), whose changes to approved requirements are listed with what they change."""
     lines = []
     for p in proposals:
         req = p.requirement
         times = sorted({t for s in req.sources if s.kind == "meeting" and (t := meeting_label(s.label)[1])})
         when = f" _({', '.join(times)})_" if times else ""
-        lines.append(f"• *{_esc(req.title)}* · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
+        what = f"Changes *{_esc(p.target)}*: *{_esc(req.title)}*" if p.kind == "change" else f"*{_esc(req.title)}*"
+        lines.append(f"• {what} · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
+    changes = sum(p.kind == "change" for p in proposals)
+    head = (
+        f"From *{_esc(title)}* I captured {_plural(len(proposals) - changes, 'new requirement')} and {_plural(changes, 'change')} to approved ones:"
+        if changes
+        else f"From *{_esc(title)}* I captured {_plural(len(proposals), 'agreed requirement')}:"
+    )
     blocks = [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"From *{_esc(title)}* I captured {len(proposals)} agreed requirement{'' if len(proposals) == 1 else 's'}:"},
-        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": head}},
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines) or "_Nothing left to review._"}},
     ]
     if questions:
@@ -156,7 +165,7 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
                     "style": "primary",
                     "action_id": APPROVE_ALL,
                     "value": group_id,
-                    "text": {"type": "plain_text", "text": "Approve all as v1.0.0"},
+                    "text": {"type": "plain_text", "text": f"Approve all as v{version}"},
                 },
                 {"type": "button", "action_id": REVIEW_EACH, "value": group_id, "text": {"type": "plain_text", "text": "Review one by one"}},
                 {"type": "button", "action_id": DISMISS_ALL, "value": group_id, "text": {"type": "plain_text", "text": "Dismiss"}},

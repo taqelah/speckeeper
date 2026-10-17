@@ -48,7 +48,10 @@ Rules:
   are scope decisions, not requirements: list them as open questions, never as requirements.
 - Each requirement once, even when the notes repeat it (details, decisions, summary); cite every passage it appears in.
 - Each requirement gets 1 to 4 acceptance criteria in Given / When / Then form, testable as written,
-  using the exact numbers from the discussion.
+  using the exact numbers from the discussion. If the discussion already states a requirement's acceptance
+  criteria (listed under it, or as Given / When / Then lines), use exactly those, as written and in the
+  same order, one criterion each: existing tests are named after them.
+- List requirements in the order the discussion first states them.
 - source_ts lists the ts of the messages where it was stated or agreed. Never cite a ts that is not below.
 - Nothing about the product that is not in the discussion.
 - If a requirement changes, replaces or contradicts one of the approved requirements below (a new limit,

@@ -109,74 +109,145 @@ def _tests(req: Requirement) -> tuple[str, str]:
     return "No tests yet", MUTED
 
 
-def render(title: str, reqs: list[Requirement], releases: list[dict], version: str, repo: str = "", now: str = "") -> str:
-    reqs = sorted((r for r in reqs if r.status == "approved"), key=lambda r: int(r.key.split("-")[1]))
-
+def _issue_link(repo: str):
     def issue(n):
         return _link(f"#{n}", f"https://github.com/{repo}/issues/{n}") if n and repo else (f"#{n}" if n else "–")
 
-    out = [
+    return issue
+
+
+def _head(title: str, kind: str, version: str, count: int, now: str, note: str) -> list[str]:
+    return [
         f'<html><head><meta charset="utf-8"></head><body style="font-family:Arial;font-size:11pt;color:{INK}">',
         f'<p style="font-size:26pt;font-weight:bold;margin:0">{h(title)}</p>',
-        f'<p style="font-size:13pt;color:{MUTED};margin-top:4pt">Product requirements · <b style="color:{BRAND}">v{h(version or "–")}</b>'
-        f" · {len(reqs)} requirement{'s' if len(reqs) != 1 else ''}" + (f" · updated {h(_when(now))}" if now else "") + "</p>",
+        f'<p style="font-size:13pt;color:{MUTED};margin-top:4pt">{h(kind)} · <b style="color:{BRAND}">v{h(version or "–")}</b>'
+        f" · {count} requirement{'s' if count != 1 else ''}" + (f" · updated {h(_when(now))}" if now else "") + "</p>",
         f'<table style="border-collapse:collapse;width:100%"><tr><td style="border:1px solid #c6d8f7;border-left:3pt solid {BRAND};background:#eef4fd;padding:8pt 10pt;color:{INK}">'
-        "Spec Keeper keeps this document. Each requirement was agreed in a meeting or a Slack thread and approved in Slack. "
-        "To change one, agree the change in Slack and approve it there: this page is rebuilt on every approval and CI run, "
-        "so edits made here are replaced.</td></tr></table>",
-        "<h1>Summary</h1>",
+        f"{h(note)} To change a requirement, agree the change in Slack and approve it there: this page is rebuilt on every "
+        "approval and CI run, so edits made here are replaced.</td></tr></table>",
     ]
-    if not reqs:
-        out.append(f'<p style="color:{MUTED}">Nothing approved yet.</p>')
-    else:
-        out.append(
-            '<table style="border-collapse:collapse;width:100%"><tr>'
-            f'<th style="{_th("64pt")}">ID</th><th style="{_th()}">Requirement</th><th style="{_th("40pt")}">Ver.</th>'
-            f'<th style="{_th("96pt")}">Tests in CI</th><th style="{_th("48pt")}">Issue</th></tr>'
-        )
-        for r in reqs:
-            tests, color = _tests(r)
-            out.append(
-                f'<tr><td style="{_td()};font-weight:bold;color:{BRAND}">{h(r.key)}</td><td style="{_td()}">{h(r.title)}</td>'
-                f'<td style="{_td()}">v{r.version}</td><td style="{_td()};color:{color}">{h(tests)}</td><td style="{_td()}">{issue(r.issue_number)}</td></tr>'
-            )
-        out.append("</table>")
 
+
+def _summary(reqs: list[Requirement], issue) -> list[str]:
+    out = [
+        '<table style="border-collapse:collapse;width:100%"><tr>'
+        f'<th style="{_th("64pt")}">ID</th><th style="{_th()}">Requirement</th><th style="{_th("40pt")}">Ver.</th>'
+        f'<th style="{_th("96pt")}">Tests in CI</th><th style="{_th("48pt")}">Issue</th></tr>'
+    ]
+    for r in reqs:
+        tests, color = _tests(r)
+        out.append(
+            f'<tr><td style="{_td()};font-weight:bold;color:{BRAND}">{h(r.key)}</td><td style="{_td()}">{h(r.title)}</td>'
+            f'<td style="{_td()}">v{r.version}</td><td style="{_td()};color:{color}">{h(tests)}</td><td style="{_td()}">{issue(r.issue_number)}</td></tr>'
+        )
+    out.append("</table>")
+    return out
+
+
+def _requirement(r: Requirement, issue, before: Requirement | None = None) -> list[str]:
+    """One requirement with its criteria table; `before` (for a change) adds how it read until then."""
+    out = [f'<h2><span style="color:{BRAND}">{h(r.key)}</span> · {h(r.title)}</h2>']
+    meta = [f"Version {r.version}"] + ([f"Issue {issue(r.issue_number)}"] if r.issue_number else [])
+    sources = source_parts(r)
+    if sources:
+        meta.append("Agreed in " + ", ".join(_link(label, link) + h(times) for label, times, link in sources))
+    out.append(f'<p style="color:{MUTED};font-size:10pt">' + " · ".join(meta) + "</p>")
+    if before is not None and before.version != r.version:
+        out.append(f'<p style="color:{MUTED}">Until now (v{before.version}): {h(before.title)}</p>')
+    out.append(
+        '<table style="border-collapse:collapse;width:100%"><tr>'
+        f'<th style="{_th("56pt")}">ID</th><th style="{_th()}">Given</th><th style="{_th()}">When</th>'
+        f'<th style="{_th()}">Then</th><th style="{_th("72pt")}">CI</th></tr>'
+    )
+    for ac in r.acs:
+        s = steps(ac.gherkin)
+        cells = "".join(f'<td style="{_td()}">' + "<br>".join(h(x) for x in s[k]) + "</td>" for k in ("Given", "When", "Then"))
+        out.append(f'<tr><td style="{_td()};font-family:Roboto Mono;font-size:10pt;font-weight:bold">{h(ac.key)}</td>{cells}{_ci_cell(ac, r.version)}</tr>')
+    out.append("</table>")
+    out.append(
+        f'<p style="color:{MUTED};font-size:9pt">Name tests <span style="font-family:Roboto Mono">{h(r.acs[0].key if r.acs else r.key)}@v{r.version}</span> … so CI results land here.</p>'
+    )
+    return out
+
+
+def _history(releases: list[dict]) -> list[str]:
+    out = ["<h1>Change history</h1>"]
+    if not releases:
+        return out + [f'<p style="color:{MUTED}">No releases yet.</p>']
+    out.append(
+        '<table style="border-collapse:collapse;width:100%"><tr>'
+        f'<th style="{_th("56pt")}">Version</th><th style="{_th("120pt")}">Approved</th><th style="{_th()}">Change</th><th style="{_th("80pt")}">By</th></tr>'
+    )
+    for rel in reversed(releases):
+        out.append(
+            f'<tr><td style="{_td()};font-weight:bold">v{h(rel.get("version", ""))}</td><td style="{_td()}">{h(_when(rel.get("at", "")))}</td>'
+            f'<td style="{_td()}">{h(rel.get("what", ""))}</td><td style="{_td()}">{h(rel.get("by", ""))}</td></tr>'
+        )
+    out.append("</table>")
+    return out
+
+
+def render(title: str, reqs: list[Requirement], releases: list[dict], version: str, repo: str = "", now: str = "") -> str:
+    """The living product spec: every approved requirement as it reads now, whichever initiative added it."""
+    reqs = sorted((r for r in reqs if r.status == "approved"), key=lambda r: int(r.key.split("-")[1]))
+    issue = _issue_link(repo)
+    out = _head(
+        title,
+        "Product spec",
+        version,
+        len(reqs),
+        now,
+        "Spec Keeper keeps this document: every requirement as it reads today. Each was agreed in a meeting or a Slack thread and approved in Slack.",
+    )
+    out.append("<h1>Summary</h1>")
+    out += _summary(reqs, issue) if reqs else [f'<p style="color:{MUTED}">Nothing approved yet.</p>']
     out.append("<h1>Requirements</h1>")
     for r in reqs:
-        out.append(f'<h2><span style="color:{BRAND}">{h(r.key)}</span> · {h(r.title)}</h2>')
-        meta = [f"Version {r.version}"] + ([f"Issue {issue(r.issue_number)}"] if r.issue_number else [])
-        sources = source_parts(r)
-        if sources:
-            meta.append("Agreed in " + ", ".join(_link(label, link) + h(times) for label, times, link in sources))
-        out.append(f'<p style="color:{MUTED};font-size:10pt">' + " · ".join(meta) + "</p>")
-        out.append(
-            '<table style="border-collapse:collapse;width:100%"><tr>'
-            f'<th style="{_th("56pt")}">ID</th><th style="{_th()}">Given</th><th style="{_th()}">When</th>'
-            f'<th style="{_th()}">Then</th><th style="{_th("72pt")}">CI</th></tr>'
-        )
-        for ac in r.acs:
-            s = steps(ac.gherkin)
-            cells = "".join(f'<td style="{_td()}">' + "<br>".join(h(x) for x in s[k]) + "</td>" for k in ("Given", "When", "Then"))
-            out.append(f'<tr><td style="{_td()};font-family:Roboto Mono;font-size:10pt;font-weight:bold">{h(ac.key)}</td>{cells}{_ci_cell(ac, r.version)}</tr>')
-        out.append("</table>")
-        out.append(
-            f'<p style="color:{MUTED};font-size:9pt">Name tests <span style="font-family:Roboto Mono">{h(r.acs[0].key if r.acs else r.key)}@v{r.version}</span> … so CI results land here.</p>'
-        )
+        out += _requirement(r, issue)
+    out += _history(releases)
+    out.append("</body></html>")
+    return "\n".join(out)
 
-    out.append("<h1>Change history</h1>")
-    if releases:
-        out.append(
-            '<table style="border-collapse:collapse;width:100%"><tr>'
-            f'<th style="{_th("56pt")}">Version</th><th style="{_th("120pt")}">Approved</th><th style="{_th()}">Change</th><th style="{_th("80pt")}">By</th></tr>'
-        )
-        for rel in reversed(releases):
-            out.append(
-                f'<tr><td style="{_td()};font-weight:bold">v{h(rel.get("version", ""))}</td><td style="{_td()}">{h(_when(rel.get("at", "")))}</td>'
-                f'<td style="{_td()}">{h(rel.get("what", ""))}</td><td style="{_td()}">{h(rel.get("by", ""))}</td></tr>'
-            )
-        out.append("</table>")
+
+def render_initiative(name: str, parts: dict, releases: list[dict], version: str, repo: str = "", now: str = "") -> str:
+    """One initiative's PRD (\"Checkout v2\"): what it adds, what it changes in the current product, what it
+    retires, and the current product as context. Built from the same records as the product spec."""
+    issue = _issue_link(repo)
+    new, changed, retired, context = parts["new"], parts["changed"], parts["retired"], parts["context"]
+    out = _head(
+        f"{name} · PRD",
+        "Product requirements",
+        version,
+        len(new) + len(changed),
+        now,
+        f"Spec Keeper keeps this document: what {name} adds and changes. The product spec has every requirement.",
+    )
+    out.append("<h1>Summary</h1>")
+    if new or changed:
+        out += _summary([r for _, r in changed] + new, issue)
     else:
-        out.append(f'<p style="color:{MUTED}">No releases yet.</p>')
+        out.append(f'<p style="color:{MUTED}">Nothing approved for {h(name)} yet. Capture its meeting notes in Slack and approve them.</p>')
+    out.append("<h1>Changes to current behaviour</h1>")
+    if changed:
+        for before, r in changed:
+            out += _requirement(r, issue, before)
+    else:
+        out.append(f'<p style="color:{MUTED}">None.</p>')
+    out.append("<h1>New requirements</h1>")
+    if new:
+        for r in new:
+            out += _requirement(r, issue)
+    else:
+        out.append(f'<p style="color:{MUTED}">None yet.</p>')
+    if retired:
+        out.append("<h1>Retired</h1>")
+        out += [f"<p><b>{h(r.key)}</b> · {h(r.title)}</p>" for r in retired]
+    out.append("<h1>Current behaviour (context)</h1>")
+    if context:
+        out.append(f'<p style="color:{MUTED}">Already in the product and unchanged by {h(name)}. Details are in the product spec.</p>')
+        out += _summary(context, issue)
+    else:
+        out.append(f'<p style="color:{MUTED}">Nothing else approved yet.</p>')
+    out += _history(releases)
     out.append("</body></html>")
     return "\n".join(out)

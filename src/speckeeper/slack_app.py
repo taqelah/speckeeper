@@ -98,7 +98,8 @@ HELP = (
     "share a meeting notes link with me (`@Spec Keeper <link>`) to capture everything the meeting agreed, "
     "or ask me anything about the requirements: `@Spec Keeper why is the upload limit 10 MB?` "
     "In threads you mention me in, I'll suggest a capture when a requirement changes (`@Spec Keeper mute` stops that). "
-    "Approved one by mistake? `@Spec Keeper retire REQ-12 wrong notes` asks an approver to take it out."
+    "Approved one by mistake? `@Spec Keeper retire REQ-12 wrong notes` asks an approver to take it out. "
+    "Starting an initiative? `@Spec Keeper prd Checkout v2 <doc link>` links its PRD."
 )
 
 
@@ -259,6 +260,9 @@ def build_slack_app(
                 await eyes(client, channel, event["ts"], on=False)
             await say(text=note, thread_ts=thread_ts)
             return
+        if first == "prd":
+            await link_prd(client, channel, thread_ts, event.get("thread_ts"), event.get("user", ""), event.get("text", ""), doc_id)
+            return
         if first in ("mute", "unmute"):
             await asyncio.to_thread(svc.mute, channel, thread_ts, first == "mute", event["ts"])
             note = (
@@ -397,7 +401,7 @@ def build_slack_app(
                     + (f" ({len(approved)} already approved: {', '.join(approved)})" if approved else "")
                     + "."
                 )
-                blocks = baseline_card(result.group_id, result.title, pending, [])
+                blocks = baseline_card(result.group_id, result.title, pending, [], svc.next_version(result.group_id))
                 blocks.insert(2, {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]})  # else only notifications say what's approved
                 await client.chat_update(channel=channel, ts=working["ts"], text=note, blocks=blocks)
                 for p in pending:
@@ -410,7 +414,7 @@ def build_slack_app(
                 note = f"These notes haven't changed since they were captured: {len(approved)} approved ({', '.join(approved) or 'none'})"
                 note += f", {dismissed} dismissed." if dismissed else "."
                 if svc.prd_version:
-                    note += f" The PRD is at {prd_link('v' + svc.prd_version)}."
+                    note += f" The product spec is at {prd_link('v' + svc.prd_version)}."
             await client.chat_update(channel=channel, ts=working["ts"], text=note)
             return
 
@@ -445,7 +449,7 @@ def build_slack_app(
             channel=channel,
             ts=working["ts"],
             text=f"Captured {len(result.proposals)} requirements from {_esc(result.title)}",
-            blocks=baseline_card(result.group_id, result.title, result.proposals, result.questions),
+            blocks=baseline_card(result.group_id, result.title, result.proposals, result.questions, svc.next_version(result.group_id)),
         )
 
     STALE = "This card is from before Spec Keeper restarted, so its requirements are gone. Capture the notes again."
@@ -459,9 +463,20 @@ def build_slack_app(
             attachments=[],
         )
 
-    def prd_link(text: str = "the PRD") -> str:
+    def prd_link(text: str = "the product spec") -> str:
         doc_id = getattr(svc.prd, "doc_id", "")
         return f"<https://docs.google.com/document/d/{doc_id}/edit|{text}>" if doc_id else text
+
+    def initiative_link(name: str) -> str:
+        init = next((i for i in svc.initiatives if i["name"] == name), None)
+        return f"<https://docs.google.com/document/d/{init['doc_id']}/edit|the {_esc(name)} PRD>" if init else ""
+
+    def written_to(initiative: str, verb: str = "Written to") -> str:
+        """ " Written to the product spec and the Checkout v2 PRD." with links, or "" without a doc."""
+        if not svc.prd:
+            return ""
+        prd = initiative_link(initiative) if initiative else ""
+        return f" {verb} {prd_link()}" + (f" and {prd}" if prd else "") + "."
 
     def issue_link(number: int) -> str:
         repo = getattr(svc.issues, "repo", "")
@@ -522,7 +537,7 @@ def build_slack_app(
         issues = sum(1 for p in done if p.requirement.issue_number)
         note = (
             f":white_check_mark: Approved by <@{user}> as *PRD v{version}*: {keys}."
-            + (f" Written to {prd_link()}." if svc.prd else "")
+            + written_to(done[0].initiative)
             + (f" {issues_link(issues)} opened." if issues else "")
             + skipped
         )
@@ -590,7 +605,9 @@ def build_slack_app(
         audit("approved", user=user, requirements=r.key, version=r.version, kind=p.kind, prd_version=version)
         if p.kind == "change":
             outdated = [a.key for a in r.acs if a.ci_status == "stale"]
-            note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, {prd_link(f'PRD v{version}')}."
+            note = f":white_check_mark: Change approved by <@{user}>. *{r.key} is now v{r.version}*, {prd_link(f'PRD v{version}')}." + written_to(
+                p.initiative, "Updated in"
+            )
             if r.issue_number:
                 note += f" Issue {issue_link(r.issue_number)} updated."
             if outdated:
@@ -602,7 +619,7 @@ def build_slack_app(
             return
         note = (
             f":white_check_mark: Approved by <@{user}> as *{r.key}*. PRD is now v{version}."
-            + (f" Added to {prd_link()}." if svc.prd else "")
+            + written_to(p.initiative, "Added to")
             + (f" Opened {issue_link(r.issue_number)}." if r.issue_number else "")
         )
         await client.chat_update(channel=body["channel"]["id"], ts=body["message"]["ts"], text=note, blocks=decided_card(p, note))
@@ -628,6 +645,50 @@ def build_slack_app(
             channel=body["channel"]["id"],
             user=body["user"]["id"],
             text="Editing isn't available. Dismiss this card, fix the thread or the meeting notes, and capture again.",
+        )
+
+    # --- initiatives: link a PRD doc ---
+
+    async def link_prd(client, channel: str, thread_ts: str, private_ts: str | None, user: str, raw: str, doc_id: str | None) -> None:
+        """`prd Checkout v2 <doc link>` links an initiative's PRD; `prd` alone says which one is open."""
+        name = re.sub(r"<[^>]*>|https?://\S+", " ", MENTION.sub("", raw)).strip()
+        name = " ".join(name.split()[1:]).strip(" ,.:;-")  # drop the "prd"
+        if not doc_id:
+            cur = svc.current_initiative()
+            text = (
+                f"Approvals now go into {initiative_link(cur['name'])}, and into {prd_link()}. Link another with `@Spec Keeper prd <name> <doc link>`."
+                if cur
+                else "No initiative PRD linked yet: everything goes into the product spec. To start one, create a Google Doc, "
+                "share it with Spec Keeper's service account as an Editor, and send `@Spec Keeper prd Checkout v2 <doc link>`."
+            )
+            await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            return
+        if approvers and user not in approvers:
+            audit("initiative_refused", "WARNING", user=user)
+            await client.chat_postEphemeral(
+                channel=channel, user=user, thread_ts=private_ts, text="Only " + ", ".join(f"<@{u}>" for u in approvers) + " can link a PRD here."
+            )
+            return
+        if not name:
+            await client.chat_postEphemeral(
+                channel=channel, user=user, thread_ts=private_ts, text="Give the initiative a name: `@Spec Keeper prd Checkout v2 <doc link>`."
+            )
+            return
+        try:
+            init = await asyncio.to_thread(svc.link_initiative, name, doc_id, user)
+        except Exception:
+            log.exception("linking a PRD failed")
+            await client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="I couldn't write to that doc. Share it with Spec Keeper's service account as an Editor, then send the command again.",
+            )
+            return
+        await client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=f":page_facing_up: Linked {initiative_link(init['name'])}. Meetings and changes approved from now on go into it; "
+            f"{prd_link()} keeps every requirement.",
         )
 
     # --- retire ---
@@ -680,8 +741,10 @@ def build_slack_app(
             keys = ", ".join(p.target for p in done)
             audit("retired", user=user, requirements=keys, prd_version=version)
             closed = [p.requirement.issue_number for p in done if p.requirement.issue_number]
-            note = f":wastebasket: Retired by <@{user}>: *{keys}*. PRD is now {prd_link(f'v{version}')}." + (
-                f" Closed {', '.join(issue_link(n) for n in closed)}." if closed else ""
+            note = (
+                f":wastebasket: Retired by <@{user}>: *{keys}*. PRD is now {prd_link(f'v{version}')}."
+                + written_to(done[0].initiative, "Updated in")
+                + (f" Closed {', '.join(issue_link(n) for n in closed)}." if closed else "")
             )
         else:
             note = ""

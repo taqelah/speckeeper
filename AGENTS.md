@@ -96,8 +96,14 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
   requirement it changes or retires, `base_version` = its version when asked, `reason` and `asked_by`
   for a retire); `group_id` ties a meeting's proposals (or one retire card's) together; `previous` keeps the requirement as it
   was before an approved change; `decided_by` and `decided_at` record the approval.
-- **Meta**: `prd_version` (v1.0.0 = the first meeting's baseline, every later approval a minor
-  version), `baseline_group`, `doc:<id>` (notes already captured).
+- **Meta**: `prd_version` (v1.0.0 = the first meeting's baseline; a new meeting captured on top of it,
+  marked `major:<group>`, is the next major version; every other approval a minor version),
+  `baseline_group`, `last_group`, `doc:<id>` (notes already captured), `initiatives` (linked PRD docs).
+- **Docs:** `PRD_DOC_ID` is the living **product spec** (every requirement as it reads now). Each
+  initiative (`@Spec Keeper prd Checkout v2 <doc link>`) has its own **PRD** doc: what it adds, what it
+  changes in current behaviour (with how it read before), what it retires, and the rest as context.
+  Both are rebuilt from the same records on every change. An approval belongs to the initiative linked
+  last (`Proposal.initiative`), except the baseline's.
 
 ## Main flows
 
@@ -118,9 +124,13 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
 4. **Questions:** any mention phrased as a question → the ADK agent (on Agent Engine when
    `AGENT_ENGINE` is set, else local) → tools read the store → answer with sources, starting with what
    changed since the person last asked (Memory Bank).
-5. **Reset:** `@Spec Keeper reset demo` in a `DEMO_CHANNELS` channel clears the demo, unless someone
+5. **Initiatives:** the PM creates a Google Doc, shares it with the service account as an Editor, and
+   sends `@Spec Keeper prd <name> <doc link>` (approvers only). Spec Keeper writes the PRD at once (a doc it
+   can't write to isn't linked); meetings, changes and retirements approved from then on go into it.
+   `reset demo` keeps the link and rebuilds it empty.
+6. **Reset:** `@Spec Keeper reset demo` in a `DEMO_CHANNELS` channel clears the demo, unless someone
    else used it in the last 10 minutes.
-6. **Retire:** `@Spec Keeper retire REQ-12 wrong notes`, or **Retire…** on an approved card → a card
+7. **Retire:** `@Spec Keeper retire REQ-12 wrong notes`, or **Retire…** on an approved card → a card
    anyone can ask for → an approver clicks Retire → status `retired`, issue closed, out of the PRD
    (a minor version) and CI; history and the REQ number are kept. Keep dismisses the ask.
 
@@ -133,7 +143,7 @@ needs CPU always allocated (`deploy.sh` sets `--no-cpu-throttling`, min 1 instan
   changes), `test_agent.py` (ADK tools), `test_agent_callbacks.py` (guardrail callbacks with a scripted
   model, no network), `test_pipelines.py` (the capture and thread-watch pipelines), `test_watch.py`
   (thread watch, W-), `test_memory.py` (Memory Bank), `test_remote.py` (Agent Engine and its fallback),
-  `test_security.py` (security fixes, N-12 on), `test_retire.py` (retiring approved requirements), `test_concurrency.py` (two people at once: changes against an older
+  `test_security.py` (security fixes, N-12 on), `test_retire.py` (retiring approved requirements), `test_initiatives.py` (product spec and initiative PRDs), `test_drive.py` (Drive retries), `test_concurrency.py` (two people at once: changes against an older
   version, the same notes captured twice, PRD versions), `test_channels.py` (`ALLOWED_CHANNELS`), `test_prd.py`,
   `test_analytics.py`, `test_tracing.py`, `test_web.py`, `test_app.py` (HTTP basics), `test_e2e.py`
   (whole app).
