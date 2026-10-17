@@ -853,3 +853,33 @@ def test_C_33_review_one_by_one_on_a_reposted_card_posts_the_cards_in_that_threa
     app.click("review_group", app.button(card, "review_group"), card)
     (posted,) = [m for m in app.slack.posted("chat.postMessage")[before:] if "approve_proposal" in json.dumps(m)]
     assert posted["thread_ts"] == "300.1"  # below the card clicked, not in thread 100.1
+
+
+@pytest.mark.parametrize("text", ["", "﻿\n\n   \n", "* \n-\n•\n"])
+def test_N_40_an_empty_doc_gets_a_plain_reply_and_no_gemini_call(text):
+    gemini = Gemini(KICKOFF)
+    app = App(gemini, fetch=lambda doc_id: ("Planning notes", text))
+    app.mention(f"capture {LINK}")
+    assert gemini.prompts == []
+    assert "That doc looks empty" in app.slack.posted("chat.update")[-1]["text"]
+    assert app.svc.store.get_meta(f"doc:{DOC}") == ""  # not remembered as captured
+
+
+def test_C_35_a_doc_captured_empty_then_filled_in_gets_the_meeting_card():
+    notes = EditableNotes("")
+    app = App(Gemini(KICKOFF), fetch=notes)
+    app.mention(f"capture {LINK}")
+    notes.text = NOTES
+    app.mention(f"capture {LINK}", ts="300.1")
+    card = json.dumps(app.last_card()["blocks"])
+    assert "captured 2 agreed requirements" in card and "approve_group" in card
+    assert "were edited" not in app.slack.posted("chat.update")[-1]["text"]
+
+
+def test_C_36_a_doc_recorded_empty_before_this_fix_is_a_first_capture_once_filled_in():
+    gemini = Gemini(KICKOFF)
+    app = App(gemini)
+    app.svc.store.set_meta(f"doc:{DOC}", "gEMPTY")  # an older server read it empty and kept a group with nothing in it
+    app.svc.store.set_meta(f"dochash:{DOC}", "old")
+    app.mention(f"capture {LINK}")
+    assert "approve_group" in json.dumps(app.last_card()["blocks"]) and len(gemini.prompts) == 1
