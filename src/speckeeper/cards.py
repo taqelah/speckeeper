@@ -141,7 +141,13 @@ def baseline_card(group_id: str, title: str, proposals: list[Proposal], question
         req = p.requirement
         times = sorted({t for s in req.sources if s.kind == "meeting" and (t := meeting_label(s.label)[1])})
         when = f" _({', '.join(times)})_" if times else ""
-        what = f"Changes *{_esc(p.target)}*: *{_esc(req.title)}*" if p.kind == "change" else f"*{_esc(req.title)}*"
+        what = (
+            f"Changes *{_esc(p.target)}*: *{_esc(req.title)}*"
+            if p.kind == "change"
+            else f"*{_esc(req.key)}* {_esc(req.title)}"  # the ID an existing spec gave it, kept on approval
+            if req.key
+            else f"*{_esc(req.title)}*"
+        )
         lines.append(f"• {what} · {len(req.acs)} {'criterion' if len(req.acs) == 1 else 'criteria'}{when}")
     changes = sum(p.kind == "change" for p in proposals)
     head = (
