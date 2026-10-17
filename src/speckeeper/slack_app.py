@@ -50,6 +50,7 @@ TZ = "Asia/Singapore"  # how message times are written in citations
 CAPTURE_WORDS = {"capture", "analyse", "analyze", "review", "check", "read", "sync", "update", "process", "summarise", "summarize"}
 RESET_GRACE_SECONDS = 600  # a reset waits this long after someone else last used the demo
 QUESTION_WORDS = {"why", "what", "when", "who", "which", "is", "did", "has", "how", "where", "are", "does", "can"}
+SMALL_TALK = {"", "help", "hi", "hello", "hey", "thanks", "thank you", "thx", "ok", "okay"}  # a whole mention that gets the help text
 
 
 def _when(iso: str) -> str:
@@ -236,15 +237,18 @@ def build_slack_app(
             return
         await asyncio.to_thread(svc.watch, channel, thread_ts, event["ts"])  # thread watch: only threads I'm mentioned in
         question = text.endswith("?") or first in QUESTION_WORDS
-        if not (doc_id and not question) and first not in CAPTURE_WORDS and not (svc.asker and question):
+        meeting = doc_id and not question  # a notes link, whatever the wording
+        # Anything else that isn't small talk is for the agent, commands too: "list all", "print REQ-7".
+        ask = svc.asker and text.strip(" .!?") not in SMALL_TALK
+        if not meeting and first not in CAPTURE_WORDS and not ask:
             await say(text=HELP, thread_ts=thread_ts)
             return
         if await busy(client, channel, thread_ts, event.get("user", "")):
             return
         await eyes(client, channel, event["ts"])
         try:
-            if doc_id and not question:
-                await capture_meeting(client, channel, thread_ts, doc_id)  # a notes link, whatever the wording
+            if meeting:
+                await capture_meeting(client, channel, thread_ts, doc_id)
             elif first in CAPTURE_WORDS:
                 await capture(client, channel, thread_ts, mention_ts=event["ts"])
             else:
