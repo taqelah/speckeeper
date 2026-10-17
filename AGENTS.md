@@ -110,7 +110,9 @@ GCP_PROJECT=... ./deploy_agent.sh         # the "why?" agent on Agent Engine (AG
    with the approved requirements in the prompt → approval card for new items, change card for
    changes → Approve → new requirement, or the next version of the existing one.
 3. **CI:** GitHub Actions posts JUnit to `/ci` → each test maps to an AC by the key at the start of
-   its name (`AC-7-1@v1 …`) → passing, failing or stale → Slack message and issue comment.
+   its name (`AC-7-1@v1 …`) → passing, failing or stale → Slack message in the thread where the
+   requirement was last approved, and an issue comment. checkout-app's workflow runs on its own when
+   Spec Keeper opens requirement issues or comments that one changed, so results follow an approval.
 4. **Questions:** any mention phrased as a question → the ADK agent (on Agent Engine when
    `AGENT_ENGINE` is set, else local) → tools read the store → answer with sources, starting with what
    changed since the person last asked (Memory Bank).

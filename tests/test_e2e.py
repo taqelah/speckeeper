@@ -1021,3 +1021,17 @@ def test_N_46_without_a_known_card_the_reply_still_says_why():
     app.mention("retire REQ-8", ts="400.1")
     (reply,) = app.slack.posted("chat.postEphemeral")
     assert reply["text"] == "Retiring REQ-8 is already waiting for an approver."
+
+
+def test_C_48_ci_results_go_to_the_thread_where_the_requirement_was_last_approved():
+    app = App(Gemini(KICKOFF, CHANGE), thread=[{"ts": "200.1", "user": "UWEI", "text": "Cap uploads at 10 MB."}])
+    kickoff_approved(app)  # in thread 100.1
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
+    first = app.slack.posted("chat.postMessage")[-1]
+    assert (first["channel"], first["thread_ts"]) == ("C1", "100.1") and "REQ-7 is verified" in first["text"]
+    app.mention("capture this", ts="200.3", thread_ts="200.1")
+    change = app.last_card()
+    app.click("approve_proposal", app.button(change, "approve_proposal"), change)  # REQ-7 v2, approved in 200.1
+    app.ci(junit(("AC-7-1@v1 rejects a 30 MB file", True)))
+    stale = app.slack.posted("chat.postMessage")[-1]
+    assert (stale["channel"], stale["thread_ts"]) == ("C1", "200.1") and "stale" in stale["text"]

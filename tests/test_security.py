@@ -215,13 +215,27 @@ def test_N_25_the_ci_summary_escapes_titles_run_ids_and_test_names():
 
 def test_N_26_ci_posts_only_in_a_channel_where_requirements_were_captured(capsys):
     app = App()
-    kickoff_approved(app)  # captured in C1
+    kickoff_approved(app)  # captured in C1, thread 100.1
     res = app.http.post(
         "/ci", json={"run_id": "#2", "channel": "C_OTHER", "junit_xml": junit(("AC-7-1@v1 x", True))}, headers={"X-SpecKeeper-Secret": "ci-secret"}
     )
-    assert res.status_code == 200 and res.json()["posted"] is False and res.json()["requirements"] == ["REQ-7"]
+    assert res.status_code == 200 and res.json()["requirements"] == ["REQ-7"]
     assert not [m for m in app.slack.posted("chat.postMessage") if m.get("channel") == "C_OTHER"]
+    assert app.slack.posted("chat.postMessage")[-1]["channel"] == "C1"  # where REQ-7 was approved, not where CI said
+
+    # A requirement with no approval thread (one filed before threads were kept, say) falls back to the run's
+    # channel, and only if requirements were captured there.
+    from speckeeper.models import AcceptanceCriterion, Requirement
+
+    app.svc.store.save_requirement(Requirement(key="REQ-30", title="Old one", status="approved", acs=[AcceptanceCriterion(key="AC-30-1", gherkin="Given x")]))
+    before = len(app.slack.posted("chat.postMessage"))
+    res = app.http.post(
+        "/ci", json={"run_id": "#3", "channel": "C_OTHER", "junit_xml": junit(("AC-30-1@v1 x", True))}, headers={"X-SpecKeeper-Secret": "ci-secret"}
+    )
+    assert res.json()["posted"] is False and len(app.slack.posted("chat.postMessage")) == before
     assert '"ci_channel_refused"' in capsys.readouterr().out
+    res = app.http.post("/ci", json={"run_id": "#4", "channel": "C1", "junit_xml": junit(("AC-30-1@v1 x", True))}, headers={"X-SpecKeeper-Secret": "ci-secret"})
+    assert res.json()["posted"] is True and "thread_ts" not in app.slack.posted("chat.postMessage")[-1]
 
 
 def test_N_27_ci_checks_the_secret_before_reading_the_body():
