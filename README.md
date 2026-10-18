@@ -229,3 +229,7 @@ $0.001, and one full demo about $0.09 ([evals/cost.md](evals/cost.md), from the 
 
 [AGENTS.md](AGENTS.md) has the rules, code map, data model, flows, testing approach and the pitfalls
 we hit along the way.
+
+## License
+
+[Apache License 2.0](LICENSE).
