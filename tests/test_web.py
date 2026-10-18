@@ -26,6 +26,9 @@ def test_the_root_explains_the_product_with_live_links_and_limits():
     assert "9 · Watch the tests go stale." in body and "taqelah/checkout-app/actions" in body.split("9 · Watch the tests go stale.")[1][:700]
     assert "12 · Undo a mistake." in body and 'data-copy="@Spec Keeper retire REQ-13 wrong notes"' in body
     assert "If you hit a limit." in body and "each person gets 7 every 5 minutes; approving, dismissing and retiring don’t count" in body
+    links = body.split('id="links"')[1].split("</section>")[0]  # the judges' table, between the demo and the problem
+    assert body.index('id="demo"') < body.index('id="links"') < body.index('id="problem"')
+    assert "docs.google.com/document/d/DOC1/edit" in links and "https://taqelah.github.io/checkout-app/" in links and "WXdmKMWIeeQ" in links
     assert all(http.get(f).status_code == 200 for f in ("/architecture.png", "/change-sequence.png", "/icon.png"))
 
 
@@ -35,6 +38,8 @@ def test_buttons_appear_only_for_links_that_are_set():
     body = page(demo_slack_invite="https://join.slack.com/t/x/shared_invite/abc", demo_video_url="https://youtu.be/v", contact_email="a@b.co").get("/").text
     assert "Join our Slack to try it" in body and "Watch the demo" in body and "mailto:a@b.co" in body
     assert "javascript:" not in page(demo_slack_invite="javascript:alert(1)").get("/").text
+    links = page().get("/").text.split('id="links"')[1].split("</section>")[0]
+    assert "Real run" in links and "Demo Slack" not in links and "Kickoff notes" not in links  # rows only for links that are set
 
 
 def test_the_status_line_shows_live_state_from_the_store():
