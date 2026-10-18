@@ -81,6 +81,44 @@ def command(url: str, prefix: str, otherwise: str) -> str:
     )
 
 
+REAL_RUN = "https://youtu.be/WXdmKMWIeeQ"  # every step done for real, embedded before step 0
+
+
+def links_table(s: Settings, repo: str) -> str:
+    """Every link a judge needs, in one table near the top: the videos, the demo Slack, the docs Spec Keeper
+    reads and writes, and what it does in GitHub. Rows for links not set are left out."""
+    gh = s.github_repo
+    owner, _, name = gh.partition("/")
+    rows = [
+        ("Demo video", s.demo_video_url, "The story in about 4 minutes."),
+        ("Real run", REAL_RUN, "Every step below done for real, in real time (6:37)."),
+        ("Demo Slack", s.demo_slack_invite, f"Join and try it yourself in #{s.demo_channel_name}."),
+        (
+            "Product spec",
+            f"https://docs.google.com/document/d/{s.prd_doc_id}/edit" if s.prd_doc_id else "",
+            "Every approved requirement as it reads now. Written only by Spec Keeper.",
+        ),
+        ("Checkout v2 PRD", s.demo_prd_url, "The initiative's PRD: what it adds, changes and retires."),
+        ("Current product doc", s.demo_baseline_url, "What's already shipped, with the team's IDs. Captured in step 1."),
+        ("Kickoff notes", s.demo_notes_url, "The Google Meet notes captured in step 4."),
+        (
+            "Requirement issues",
+            f"https://github.com/{gh}/issues?q=label%3Arequirement" if gh else "",
+            "A GitHub issue per requirement, its criteria ticked as tests pass.",
+        ),
+        ("CI runs", f"https://github.com/{gh}/actions" if gh else "", "Each approval starts the demo app's tests."),
+        ("Test videos", f"https://{owner}.github.io/{name}/" if owner and name else "", "Playwright's report, with a video of every test."),
+        ("Demo app's code", f"https://github.com/{gh}" if gh else "", "Checkout, the product Spec Keeper watches, and its tests."),
+        ("Spec Keeper's code", repo, "This agent: ADK, Gemini, Cloud Run, Firestore."),
+    ]
+    body = "".join(
+        f'<tr><td><a href="{html.escape(url, quote=True)}">{html.escape(label)}</a></td><td>{html.escape(about)}</td></tr>'
+        for label, url, about in rows
+        if url.startswith("https://")
+    )
+    return f'<table><thead><tr><th scope="col">Link</th><th scope="col">What it is</th></tr></thead><tbody>{body}</tbody></table>'
+
+
 def landing(s: Settings, status: str = "") -> str:
     def q(v):
         return html.escape(v, quote=True)
@@ -106,6 +144,7 @@ def landing(s: Settings, status: str = "") -> str:
     page = Template((WEB / "index.html").read_text()).safe_substitute(
         ctas=ctas,
         join=join,
+        links=links_table(s, repo),
         video_hint=f', or <a href="{q(s.demo_video_url)}" target="_blank" rel="noopener">watch the demo video</a>'
         if s.demo_video_url.startswith("https://")
         else "",
