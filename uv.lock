@@ -1000,7 +1000,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-agentplatform"
-version = "2.5.0"
+version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -1012,9 +1012,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d7/fb/3b4053a5138d2a58384afa389366e239ce1af3bb1f6e87b8e5912420739d/google_cloud_agentplatform-2.5.0.tar.gz", hash = "sha256:5933ecaf02cbeac9517312ed9165ae43996a495e75fb58f7849ba594f9399ada", size = 524654, upload-time = "2026-10-14T03:46:53.726Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/18/258f5ac19baa9ea17dc5039e717ad76572e447835df4eeb9a90ef9c79c43/google_cloud_agentplatform-2.7.0.tar.gz", hash = "sha256:1e38587e4db655d0e3ce62cc3bdbc4509eb85590f0c8a5d8dec02231b0e78471", size = 535690, upload-time = "2026-10-28T17:48:40.551Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/e4/a3d50048236f600b878f72f23f4577e67ff387b13c24a78ed17f22cdd2d1/google_cloud_agentplatform-2.5.0-py3-none-any.whl", hash = "sha256:979540a7a6725e2bd69fdea630e71717b8fa1afdf48a9878d8d2901ccb1fd361", size = 583055, upload-time = "2026-10-14T03:46:51.874Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/1e/b3339f3b37519e980a6c5fefc2d1cde77552c3f810c1edb6cd9f0adc6f27/google_cloud_agentplatform-2.7.0-py3-none-any.whl", hash = "sha256:c30530ea0390ad042012146a3388d81e6456d59c2fc8d955d337cd81d5e828b5", size = 593787, upload-time = "2026-10-28T17:48:39.023Z" },
 ]
 
 [[package]]
